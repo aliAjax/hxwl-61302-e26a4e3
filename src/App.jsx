@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
-import { Sprout, Plus, Search, Trash2, RotateCcw, CheckCircle2, AlertTriangle, ClipboardList, CalendarDays } from 'lucide-react';
+import { Sprout, Plus, Search, Trash2, RotateCcw, CheckCircle2, AlertTriangle, ClipboardList, CalendarDays, BookOpen, ChevronDown, ChevronUp, ArrowRight } from 'lucide-react';
 import './App.css';
+import { recipeTemplates, cropOptions } from './recipeTemplates';
 
 const appConfig = {
   "id": "hxwl-61302",
@@ -207,11 +208,30 @@ function App() {
   const [form, setForm] = useState(appConfig.defaultValues);
   const [filters, setFilters] = useState({ query: '', status: '全部' });
   const [selected, setSelected] = useState(null);
+  const [templateOpen, setTemplateOpen] = useState(true);
+  const [templateCrop, setTemplateCrop] = useState('全部');
 
   function persist(next) {
     setRecords(next);
     localStorage.setItem(appConfig.storage, JSON.stringify(next));
   }
+
+  function applyTemplate(template) {
+    setForm({
+      ...form,
+      crop: template.crop,
+      stage: template.stage,
+      ec: template.ec,
+      ph: template.ph,
+      npk: template.npk,
+      memo: template.memo,
+      status: form.status || appConfig.primaryStatus
+    });
+  }
+
+  const filteredTemplates = useMemo(() => {
+    return recipeTemplates.filter((t) => templateCrop === '全部' || t.crop === templateCrop);
+  }, [templateCrop]);
 
   function addRecord(event) {
     event.preventDefault();
@@ -341,6 +361,46 @@ function App() {
             <ClipboardList size={18} />
             <h2>新增记录</h2>
           </div>
+
+          <div className="template-library">
+            <button type="button" className="template-toggle" onClick={() => setTemplateOpen(!templateOpen)}>
+              <BookOpen size={16} />
+              <span>配方模板库</span>
+              {templateOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+            </button>
+            {templateOpen && (
+              <div className="template-body">
+                <div className="template-toolbar">
+                  <span className="template-count">共 {filteredTemplates.length} 个模板</span>
+                  <select value={templateCrop} onChange={(e) => setTemplateCrop(e.target.value)}>
+                    <option>全部</option>
+                    {cropOptions.map((crop) => <option key={crop}>{crop}</option>)}
+                  </select>
+                </div>
+                <div className="template-grid">
+                  {filteredTemplates.map((template) => (
+                    <button type="button" key={template.id} className="template-card" onClick={() => applyTemplate(template)}>
+                      <div className="template-card-head">
+                        <strong>{template.crop}</strong>
+                        <span className="template-stage">{template.stage}</span>
+                      </div>
+                      <div className="template-card-params">
+                        <span>EC {template.ec}</span>
+                        <span>pH {template.ph}</span>
+                        <span>NPK {template.npk}</span>
+                      </div>
+                      <p className="template-card-memo">{template.memo}</p>
+                      <div className="template-card-action">
+                        <ArrowRight size={14} />
+                        <span>一键带入</span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
           <div className="form-grid">
             {appConfig.fields.map((field) => (
               <label key={field.key} className={field.type === 'textarea' ? 'wide' : ''}>

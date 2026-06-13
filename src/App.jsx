@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState, useRef } from 'react';
-import { Sprout, Plus, Search, Trash2, RotateCcw, CheckCircle2, AlertTriangle, ClipboardList, CalendarDays, BookOpen, ChevronDown, ChevronUp, ArrowRight, FileText, Calculator, Droplets, Beaker, Scale, Info, RefreshCw, GitCompareArrows, Grid3X3, Flower2, X, Layers, Archive, ShieldAlert, TrendingDown, TrendingUp, Copy, Download, Upload, Database, HardDriveUpload, HardDriveDownload, Calendar } from 'lucide-react';
+import { Sprout, Plus, Search, Trash2, RotateCcw, CheckCircle2, AlertTriangle, ClipboardList, CalendarDays, BookOpen, ChevronDown, ChevronUp, ArrowRight, FileText, Calculator, Droplets, Beaker, Scale, Info, RefreshCw, GitCompareArrows, Grid3X3, Flower2, X, Layers, Archive, ShieldAlert, TrendingDown, TrendingUp, Copy, Download, Upload, Database, HardDriveUpload, HardDriveDownload, Calendar, FlaskConical, Leaf, Eye, CheckCircle, History, LeafyGreen, Bug, Activity } from 'lucide-react';
 import './App.css';
 import { recipeTemplates, cropOptions, cropStageRanges } from './recipeTemplates';
 import RecipeCalendar from './RecipeCalendar';
@@ -192,6 +192,10 @@ function loadRecords() {
 }
 
 const adjStorageKey = appConfig.storage + '-adj';
+const trialStorageKey = appConfig.storage + '-trials';
+const obsStorageKey = appConfig.storage + '-obs';
+
+const TRIAL_STATUSES = ['试配中', '观察中', '已采用', '已归档'];
 
 function loadAdjRecords() {
   const raw = localStorage.getItem(adjStorageKey);
@@ -204,6 +208,35 @@ function loadAdjRecords() {
   }
   return [];
 }
+
+function loadTrials() {
+  const raw = localStorage.getItem(trialStorageKey);
+  if (raw) {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+function loadObservations() {
+  const raw = localStorage.getItem(obsStorageKey);
+  if (raw) {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+const LEAF_COLOR_OPTIONS = ['浓绿', '翠绿', '浅绿', '黄绿', '黄化', '紫红叶', '白化'];
+const GROWTH_OPTIONS = ['健壮旺盛', '生长正常', '长势偏弱', '徒长', '僵苗'];
+const ROOT_OPTIONS = ['根系发达白根多', '根系正常', '根少色黄', '烂根黑根', '沤根'];
+const YIELD_ESTIMATE_OPTIONS = ['远超预期', '优于预期', '符合预期', '低于预期', '严重减产'];
 
 function avg(numbers) {
   const valid = numbers.filter((value) => Number.isFinite(value));
@@ -285,6 +318,20 @@ function App() {
   const [importError, setImportError] = useState(null);
   const [importProcessing, setImportProcessing] = useState(false);
   const importFileInputRef = useRef(null);
+
+  const [trials, setTrials] = useState(loadTrials);
+  const [observations, setObservations] = useState(loadObservations);
+  const [selectedTrial, setSelectedTrial] = useState(null);
+  const [trialForm, setTrialForm] = useState({ recipeId: '', goal: '', initialMemo: '' });
+  const [trialFormVisible, setTrialFormVisible] = useState(false);
+  const [obsForm, setObsForm] = useState({
+    trialId: '', date: today, leafColor: '', growth: '', rootSystem: '',
+    yieldEstimate: '', anomaly: '', memo: ''
+  });
+  const [obsFormVisible, setObsFormVisible] = useState(false);
+  const [trialFilters, setTrialFilters] = useState({ crop: '全部', status: '全部' });
+  const [adoptModalOpen, setAdoptModalOpen] = useState(false);
+  const [adoptTrialId, setAdoptTrialId] = useState(null);
 
   const boardStages = ['育苗期', '营养生长期', '开花期', '结果期'];
 
@@ -514,6 +561,159 @@ function App() {
     localStorage.setItem(adjStorageKey, JSON.stringify(next));
   }
 
+  function persistTrials(next) {
+    setTrials(next);
+    localStorage.setItem(trialStorageKey, JSON.stringify(next));
+  }
+
+  function persistObservations(next) {
+    setObservations(next);
+    localStorage.setItem(obsStorageKey, JSON.stringify(next));
+  }
+
+  function trialStatusClass(status) {
+    const index = TRIAL_STATUSES.indexOf(status);
+    return ['status-a', 'status-b', 'status-c', 'status-d'][index] || 'status-a';
+  }
+
+  function getRecipeTrial(recipeId) {
+    return trials.find((t) => t.recipeId === recipeId) || null;
+  }
+
+  function getTrialObservations(trialId) {
+    return observations
+      .filter((o) => o.trialId === trialId)
+      .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+  }
+
+  function createTrial(event) {
+    event.preventDefault();
+    if (!trialForm.recipeId) return;
+    const recipe = records.find((r) => r.id === trialForm.recipeId);
+    if (!recipe) return;
+
+    const newTrial = {
+      id: uid(),
+      recipeId: trialForm.recipeId,
+      crop: recipe.crop,
+      stage: recipe.stage,
+      goal: trialForm.goal || '试验新配方',
+      initialMemo: trialForm.initialMemo || '',
+      status: '试配中',
+      adoptedRecipeId: null,
+      createdAt: new Date().toISOString(),
+      timeline: [{ status: '试配中', at: today, by: '创建试验' }]
+    };
+    persistTrials([newTrial, ...trials]);
+    setTrialForm({ recipeId: '', goal: '', initialMemo: '' });
+    setTrialFormVisible(false);
+    setSelectedTrial(newTrial);
+  }
+
+  function updateTrialStatus(trialId, newStatus) {
+    const next = trials.map((t) => t.id === trialId ? {
+      ...t,
+      status: newStatus,
+      timeline: [...(t.timeline || []), { status: newStatus, at: today, by: '操作员' }]
+    } : t);
+    persistTrials(next);
+    if (selectedTrial?.id === trialId) {
+      setSelectedTrial(next.find((t) => t.id === trialId));
+    }
+  }
+
+  function addObservation(event) {
+    event.preventDefault();
+    if (!obsForm.trialId) return;
+    const newObs = {
+      id: uid(),
+      trialId: obsForm.trialId,
+      date: obsForm.date || today,
+      leafColor: obsForm.leafColor,
+      growth: obsForm.growth,
+      rootSystem: obsForm.rootSystem,
+      yieldEstimate: obsForm.yieldEstimate,
+      anomaly: obsForm.anomaly,
+      memo: obsForm.memo,
+      createdAt: new Date().toISOString()
+    };
+    persistObservations([newObs, ...observations]);
+    setObsForm({ trialId: '', date: today, leafColor: '', growth: '', rootSystem: '', yieldEstimate: '', anomaly: '', memo: '' });
+    setObsFormVisible(false);
+
+    const trial = trials.find((t) => t.id === obsForm.trialId);
+    if (trial && trial.status === '试配中') {
+      updateTrialStatus(trial.id, '观察中');
+    }
+  }
+
+  function removeObservation(id) {
+    persistObservations(observations.filter((o) => o.id !== id));
+  }
+
+  function adoptTrial(trialId) {
+    const trial = trials.find((t) => t.id === trialId);
+    if (!trial) return;
+    const sourceRecipe = records.find((r) => r.id === trial.recipeId);
+    if (!sourceRecipe) return;
+
+    const sameGroup = records.filter((r) => r.crop === sourceRecipe.crop && r.stage === sourceRecipe.stage);
+    const nextVer = sameGroup.length > 0 ? Math.max(...sameGroup.map((r) => r.version || 0)) + 1 : 1;
+
+    const adoptedRecipe = {
+      id: uid(),
+      crop: sourceRecipe.crop,
+      stage: sourceRecipe.stage,
+      ec: sourceRecipe.ec,
+      ph: sourceRecipe.ph,
+      npk: sourceRecipe.npk,
+      memo: sourceRecipe.memo,
+      status: '使用中',
+      version: nextVer,
+      createdAt: new Date().toISOString(),
+      timeline: [{ status: '使用中', at: today, by: `试验采用（源试验: ${trial.id.slice(0, 6)}）` }],
+      fromTrialId: trial.id
+    };
+
+    const nextRecords = [adoptedRecipe, ...records];
+    persist(ensureVersions(nextRecords));
+
+    const previousInUse = sameGroup.filter((r) => r.status === '使用中' && r.id !== sourceRecipe.id);
+    if (previousInUse.length > 0) {
+      const archivedRecords = nextRecords.map((r) =>
+        previousInUse.some((p) => p.id === r.id)
+          ? { ...r, status: '已归档', timeline: [...(r.timeline || []), { status: '已归档', at: today, by: '新版本采用自动归档' }] }
+          : r
+      );
+      persist(ensureVersions(archivedRecords));
+    }
+
+    const nextTrials = trials.map((t) => t.id === trialId ? {
+      ...t,
+      status: '已采用',
+      adoptedRecipeId: adoptedRecipe.id,
+      timeline: [...(t.timeline || []), { status: '已采用', at: today, by: `生成正式配方 v${nextVer}` }]
+    } : t);
+    persistTrials(nextTrials);
+
+    if (selectedTrial?.id === trialId) {
+      setSelectedTrial(nextTrials.find((t) => t.id === trialId));
+    }
+    setSelected(adoptedRecipe);
+    setAdoptModalOpen(false);
+    setAdoptTrialId(null);
+  }
+
+  function openTrialForRecipe(recipe) {
+    const existing = trials.find((t) => t.recipeId === recipe.id);
+    if (existing) {
+      setSelectedTrial(existing);
+      return;
+    }
+    setTrialForm({ recipeId: recipe.id, goal: '', initialMemo: recipe.memo || '' });
+    setTrialFormVisible(true);
+  }
+
   function addAdjRecord(event) {
     event.preventDefault();
     if (!selected || !adjForm.sourceId) return;
@@ -541,7 +741,7 @@ function App() {
   }
 
   function handleExport() {
-    const jsonStr = exportData(records, adjRecords, appConfig);
+    const jsonStr = exportData(records, adjRecords, appConfig, trials, observations);
     const filename = generateExportFilename(appConfig);
     downloadJSON(jsonStr, filename);
   }
@@ -560,7 +760,7 @@ function App() {
 
     parseImportFile(file)
       .then((data) => {
-        const validation = validateImportData(data, records, adjRecords, appConfig);
+        const validation = validateImportData(data, records, adjRecords, appConfig, trials, observations);
         setImportPreview(validation);
         setImportProcessing(false);
       })
@@ -584,18 +784,22 @@ function App() {
   function handleImportConfirm() {
     if (!importPreview || !importPreview.valid) return;
 
-    const merged = mergeImportedData(importPreview.cleanData, records, adjRecords);
+    const merged = mergeImportedData(importPreview.cleanData, records, adjRecords, trials, observations);
 
     const finalRecords = ensureVersions(merged.records);
 
     persist(finalRecords);
     persistAdj(merged.adjRecords);
+    persistTrials(merged.trials);
+    persistObservations(merged.observations);
 
     setImportModalOpen(false);
     setImportPreview(null);
     setImportFileInfo(null);
 
-    alert(`导入成功！\n\n配方记录：新增 ${importPreview.preview.records.newCount} 条，覆盖 ${importPreview.preview.records.overwriteCount} 条\n调整记录：新增 ${importPreview.preview.adjRecords.newCount} 条，覆盖 ${importPreview.preview.adjRecords.overwriteCount} 条`);
+    const trialCount = importPreview.preview.trials ? `\n试验记录：新增 ${importPreview.preview.trials.newCount} 条，覆盖 ${importPreview.preview.trials.overwriteCount} 条` : '';
+    const obsCount = importPreview.preview.observations ? `\n观察记录：新增 ${importPreview.preview.observations.newCount} 条，覆盖 ${importPreview.preview.observations.overwriteCount} 条` : '';
+    alert(`导入成功！\n\n配方记录：新增 ${importPreview.preview.records.newCount} 条，覆盖 ${importPreview.preview.records.overwriteCount} 条\n调整记录：新增 ${importPreview.preview.adjRecords.newCount} 条，覆盖 ${importPreview.preview.adjRecords.overwriteCount} 条${trialCount}${obsCount}`);
   }
 
   function handleImportCancel() {
@@ -733,6 +937,36 @@ function App() {
     { label: "异常预警", value: warningList.length },
   ];
 
+  const filteredTrials = useMemo(() => {
+    return trials
+      .filter((t) => trialFilters.crop === '全部' || t.crop === trialFilters.crop)
+      .filter((t) => trialFilters.status === '全部' || t.status === trialFilters.status)
+      .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+  }, [trials, trialFilters]);
+
+  const trialCropOptions = useMemo(() => [...new Set(trials.map((t) => t.crop))], [trials]);
+  const trialMetrics = useMemo(() => ({
+    total: trials.length,
+    inProgress: trials.filter((t) => t.status === '试配中' || t.status === '观察中').length,
+    adopted: trials.filter((t) => t.status === '已采用').length,
+    archived: trials.filter((t) => t.status === '已归档').length,
+  }), [trials]);
+
+  const selectedTrialObservations = useMemo(() => {
+    if (!selectedTrial) return [];
+    return getTrialObservations(selectedTrial.id);
+  }, [selectedTrial, observations]);
+
+  const selectedTrialRecipe = useMemo(() => {
+    if (!selectedTrial) return null;
+    return records.find((r) => r.id === selectedTrial.recipeId) || null;
+  }, [selectedTrial, records]);
+
+  const selectedTrialAdoptedRecipe = useMemo(() => {
+    if (!selectedTrial?.adoptedRecipeId) return null;
+    return records.find((r) => r.id === selectedTrial.adoptedRecipeId) || null;
+  }, [selectedTrial, records]);
+
   const groupedByDate = useMemo(() => {
     return filteredRecords.reduce((acc, item) => {
       const key = item[appConfig.dateKey] || item.date || item.enrollDate || '未排期';
@@ -773,13 +1007,17 @@ function App() {
         </div>
       </section>
 
-      <section className="metrics metrics-4">
+      <section className="metrics metrics-5">
         {metrics.map((metric) => (
           <article className={'metric ' + (metric.label === '异常预警' && metric.value > 0 ? 'metric-warning' : '')} key={metric.label}>
             <span>{metric.label}</span>
             <strong>{metric.value}</strong>
           </article>
         ))}
+        <article className="metric metric-trial">
+          <span>进行中试验</span>
+          <strong>{trialMetrics.inProgress}</strong>
+        </article>
       </section>
 
       <section className="board-section">
@@ -1170,6 +1408,51 @@ function App() {
                   {selected.startDate ? '修改排期' : '安排日期'}
                 </button>
               </div>
+              <div className="trial-link-section">
+                {(() => {
+                  const linkedTrial = getRecipeTrial(selected.id);
+                  const sourceTrial = selected.fromTrialId ? trials.find((t) => t.id === selected.fromTrialId) : null;
+                  if (linkedTrial) {
+                    return (
+                      <div className="trial-link-card trial-link-active">
+                        <div className="trial-link-head">
+                          <FlaskConical size={16} />
+                          <strong>已绑定试验</strong>
+                          <span className={'status ' + trialStatusClass(linkedTrial.status)}>{linkedTrial.status}</span>
+                        </div>
+                        <p className="trial-link-goal">{linkedTrial.goal}</p>
+                        <button type="button" className="trial-link-btn" onClick={() => setSelectedTrial(linkedTrial)}>
+                          <Activity size={13} />
+                          查看试验详情
+                        </button>
+                      </div>
+                    );
+                  }
+                  if (sourceTrial) {
+                    return (
+                      <div className="trial-link-card trial-link-source">
+                        <div className="trial-link-head">
+                          <History size={16} />
+                          <strong>来自试验配方</strong>
+                          <span className={'status ' + trialStatusClass(sourceTrial.status)}>{sourceTrial.status}</span>
+                        </div>
+                        <p className="trial-link-goal">{sourceTrial.goal}</p>
+                        <button type="button" className="trial-link-btn" onClick={() => setSelectedTrial(sourceTrial)}>
+                          <Activity size={13} />
+                          追溯试验过程
+                        </button>
+                      </div>
+                    );
+                  }
+                  return (
+                    <button type="button" className="trial-init-btn" onClick={() => openTrialForRecipe(selected)}>
+                      <FlaskConical size={16} />
+                      <span>为此配方发起试验</span>
+                    </button>
+                  );
+                })()}
+              </div>
+
               <div className="adj-section">
                 <button type="button" className="adj-toggle" onClick={() => { setAdjFormVisible(!adjFormVisible); setAdjForm({ sourceId: '', reason: '', adjustments: '', observations: '' }); }}>
                   <FileText size={16} />
@@ -1645,6 +1928,382 @@ function App() {
         </div>
       </section>
 
+      <section className="trial-loop-section">
+        <div className="panel trial-list-panel">
+          <div className="panel-title">
+            <FlaskConical size={18} />
+            <h2>配方试验闭环</h2>
+            <span className="trial-meta">共 {trialMetrics.total} 个试验 · 进行中 {trialMetrics.inProgress} · 已采用 {trialMetrics.adopted}</span>
+            {!trialFormVisible && (
+              <button
+                type="button"
+                className="trial-create-btn"
+                onClick={() => {
+                  setTrialForm({ recipeId: selected?.id || '', goal: '', initialMemo: selected?.memo || '' });
+                  setTrialFormVisible(true);
+                }}
+              >
+                <Plus size={14} />
+                <span>创建试验</span>
+              </button>
+            )}
+          </div>
+
+          <div className="trial-toolbar">
+            <label>
+              <span>作物</span>
+              <select value={trialFilters.crop} onChange={(e) => setTrialFilters({ ...trialFilters, crop: e.target.value })}>
+                <option>全部</option>
+                {trialCropOptions.map((c) => <option key={c}>{c}</option>)}
+              </select>
+            </label>
+            <label>
+              <span>试验状态</span>
+              <select value={trialFilters.status} onChange={(e) => setTrialFilters({ ...trialFilters, status: e.target.value })}>
+                <option>全部</option>
+                {TRIAL_STATUSES.map((s) => <option key={s}>{s}</option>)}
+              </select>
+            </label>
+          </div>
+
+          {trialFormVisible && (
+            <form className="trial-create-form" onSubmit={createTrial}>
+              <div className="panel-title trial-form-title">
+                <FlaskConical size={16} />
+                <h3>创建新试验</h3>
+                <button type="button" className="modal-close" onClick={() => setTrialFormVisible(false)}>
+                  <X size={18} />
+                </button>
+              </div>
+              <div className="trial-form-grid">
+                <label className="wide">
+                  <span>绑定配方</span>
+                  <select value={trialForm.recipeId} onChange={(e) => setTrialForm({ ...trialForm, recipeId: e.target.value })} required>
+                    <option value="">请选择要试验的配方</option>
+                    {records.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.crop} · {r.stage} — EC {r.ec} / pH {r.ph}（{r.status}）
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="wide">
+                  <span>试验目标</span>
+                  <input type="text" value={trialForm.goal} onChange={(e) => setTrialForm({ ...trialForm, goal: e.target.value })} placeholder="如：验证高温期高钾配方的实际表现" />
+                </label>
+                <label className="wide">
+                  <span>初始备注</span>
+                  <textarea value={trialForm.initialMemo} onChange={(e) => setTrialForm({ ...trialForm, initialMemo: e.target.value })} placeholder="试验起始条件、区域、种植密度等说明" />
+                </label>
+              </div>
+              <div className="trial-form-actions">
+                <button type="button" className="ghost" onClick={() => setTrialFormVisible(false)}>取消</button>
+                <button className="primary" type="submit"><Plus size={16} />创建试验</button>
+              </div>
+            </form>
+          )}
+
+          {filteredTrials.length > 0 ? (
+            <div className="trial-list">
+              {filteredTrials.map((trial) => {
+                const trialRecipe = records.find((r) => r.id === trial.recipeId);
+                const trialObs = observations.filter((o) => o.trialId === trial.id);
+                const isSelected = selectedTrial?.id === trial.id;
+                return (
+                  <article
+                    key={trial.id}
+                    className={'trial-card ' + (isSelected ? 'trial-card-active' : '')}
+                    onClick={() => setSelectedTrial(trial)}
+                  >
+                    <div className="trial-card-head">
+                      <div className="trial-card-title">
+                        <strong>{trial.crop}</strong>
+                        <span className="trial-stage-tag">{trial.stage}</span>
+                        <span className={'status ' + trialStatusClass(trial.status)}>{trial.status}</span>
+                      </div>
+                      <span className="trial-id">#{trial.id.slice(0, 6)}</span>
+                    </div>
+                    <div className="trial-card-body">
+                      <p className="trial-goal">{trial.goal}</p>
+                      {trialRecipe && (
+                        <div className="trial-recipe-mini">
+                          <span>EC {trialRecipe.ec}</span>
+                          <span>pH {trialRecipe.ph}</span>
+                          <span>NPK {trialRecipe.npk}</span>
+                        </div>
+                      )}
+                    </div>
+                    <div className="trial-card-foot">
+                      <span className="trial-obs-count">
+                        <Eye size={12} />
+                        观察记录 {trialObs.length}
+                      </span>
+                      <span className="trial-date">{trial.createdAt?.slice(0, 10)}</span>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="trial-empty">
+              <FlaskConical size={40} />
+              <p>暂无试验记录。点击「创建试验」开始配方试验闭环流程。</p>
+              <p className="trial-empty-sub">旧的普通配方记录可在「配方详情」中发起试验。</p>
+            </div>
+          )}
+        </div>
+
+        <div className="panel trial-detail-panel">
+          <div className="panel-title">
+            <Activity size={18} />
+            <h2>试验详情</h2>
+          </div>
+
+          {selectedTrial ? (
+            <div className="trial-detail">
+              <div className="trial-detail-head">
+                <div className="trial-detail-title">
+                  <strong>{selectedTrial.crop} · {selectedTrial.stage}</strong>
+                  <span className={'status ' + trialStatusClass(selectedTrial.status)}>{selectedTrial.status}</span>
+                </div>
+                <span className="trial-detail-id">#{selectedTrial.id.slice(0, 6)}</span>
+              </div>
+
+              <div className="trial-detail-section">
+                <div className="trial-section-title"><FlaskConical size={14} />试验目标</div>
+                <p className="trial-goal-text">{selectedTrial.goal}</p>
+                {selectedTrial.initialMemo && <p className="trial-memo-text">{selectedTrial.initialMemo}</p>}
+              </div>
+
+              {selectedTrialRecipe && (
+                <div className="trial-detail-section">
+                  <div className="trial-section-title"><ClipboardList size={14} />试验配方</div>
+                  <div className="trial-recipe-card">
+                    <div className="trial-recipe-row">
+                      <span>EC <strong>{selectedTrialRecipe.ec}</strong></span>
+                      <span>pH <strong>{selectedTrialRecipe.ph}</strong></span>
+                      <span>NPK <strong>{selectedTrialRecipe.npk}</strong></span>
+                    </div>
+                    {selectedTrialRecipe.memo && <p className="trial-recipe-memo">{selectedTrialRecipe.memo}</p>}
+                    <button type="button" className="trial-locate-btn" onClick={() => setSelected(selectedTrialRecipe)}>
+                      <ArrowRight size={13} />
+                      查看配方详情
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {selectedTrialAdoptedRecipe && (
+                <div className="trial-detail-section">
+                  <div className="trial-section-title"><CheckCircle size={14} />已生成正式配方</div>
+                  <div className="trial-adopted-card">
+                    <div className="trial-adopted-head">
+                      <strong>v{selectedTrialAdoptedRecipe.version}</strong>
+                      <span className={'status ' + statusClass(selectedTrialAdoptedRecipe.status)}>{selectedTrialAdoptedRecipe.status}</span>
+                    </div>
+                    <div className="trial-recipe-row">
+                      <span>EC <strong>{selectedTrialAdoptedRecipe.ec}</strong></span>
+                      <span>pH <strong>{selectedTrialAdoptedRecipe.ph}</strong></span>
+                      <span>NPK <strong>{selectedTrialAdoptedRecipe.npk}</strong></span>
+                    </div>
+                    <button type="button" className="trial-locate-btn" onClick={() => setSelected(selectedTrialAdoptedRecipe)}>
+                      <ArrowRight size={13} />
+                      查看正式配方
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div className="trial-detail-section">
+                <div className="trial-section-title">
+                  <Eye size={14} />
+                  观察记录
+                  <span className="trial-obs-badge">{selectedTrialObservations.length} 条</span>
+                  {!obsFormVisible && selectedTrial.status !== '已采用' && selectedTrial.status !== '已归档' && (
+                    <button
+                      type="button"
+                      className="trial-add-obs-btn"
+                      onClick={() => {
+                        setObsForm({ trialId: selectedTrial.id, date: today, leafColor: '', growth: '', rootSystem: '', yieldEstimate: '', anomaly: '', memo: '' });
+                        setObsFormVisible(true);
+                      }}
+                    >
+                      <Plus size={12} />
+                      添加观察
+                    </button>
+                  )}
+                </div>
+
+                {obsFormVisible && (
+                  <form className="obs-form" onSubmit={addObservation}>
+                    <div className="obs-form-grid">
+                      <label>
+                        <span>观察日期</span>
+                        <input type="date" value={obsForm.date} onChange={(e) => setObsForm({ ...obsForm, date: e.target.value })} required />
+                      </label>
+                      <label>
+                        <span><Leaf size={12} /> 叶色</span>
+                        <select value={obsForm.leafColor} onChange={(e) => setObsForm({ ...obsForm, leafColor: e.target.value })}>
+                          <option value="">请选择</option>
+                          {LEAF_COLOR_OPTIONS.map((o) => <option key={o}>{o}</option>)}
+                        </select>
+                      </label>
+                      <label>
+                        <span><LeafyGreen size={12} /> 长势</span>
+                        <select value={obsForm.growth} onChange={(e) => setObsForm({ ...obsForm, growth: e.target.value })}>
+                          <option value="">请选择</option>
+                          {GROWTH_OPTIONS.map((o) => <option key={o}>{o}</option>)}
+                        </select>
+                      </label>
+                      <label>
+                        <span><Sprout size={12} /> 根系</span>
+                        <select value={obsForm.rootSystem} onChange={(e) => setObsForm({ ...obsForm, rootSystem: e.target.value })}>
+                          <option value="">请选择</option>
+                          {ROOT_OPTIONS.map((o) => <option key={o}>{o}</option>)}
+                        </select>
+                      </label>
+                      <label>
+                        <span><Scale size={12} /> 产量预估</span>
+                        <select value={obsForm.yieldEstimate} onChange={(e) => setObsForm({ ...obsForm, yieldEstimate: e.target.value })}>
+                          <option value="">请选择</option>
+                          {YIELD_ESTIMATE_OPTIONS.map((o) => <option key={o}>{o}</option>)}
+                        </select>
+                      </label>
+                      <label className="wide">
+                        <span><Bug size={12} /> 异常描述</span>
+                        <textarea value={obsForm.anomaly} onChange={(e) => setObsForm({ ...obsForm, anomaly: e.target.value })} placeholder="如：叶缘焦枯、新叶黄化、根腐等异常现象及位置" />
+                      </label>
+                      <label className="wide">
+                        <span>备注</span>
+                        <textarea value={obsForm.memo} onChange={(e) => setObsForm({ ...obsForm, memo: e.target.value })} placeholder="处理措施、天气、水肥操作等补充说明" />
+                      </label>
+                    </div>
+                    <div className="obs-form-actions">
+                      <button type="button" className="ghost" onClick={() => setObsFormVisible(false)}>取消</button>
+                      <button className="primary" type="submit"><Plus size={14} />保存观察记录</button>
+                    </div>
+                  </form>
+                )}
+
+                {selectedTrialObservations.length > 0 ? (
+                  <div className="obs-list">
+                    {selectedTrialObservations.map((obs, idx) => (
+                      <article className="obs-card" key={obs.id}>
+                        <div className="obs-card-head">
+                          <span className="obs-index">观察 #{idx + 1}</span>
+                          <span className="obs-date">{obs.date}</span>
+                          <button type="button" className="ghost-danger obs-delete" onClick={() => removeObservation(obs.id)}>
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                        <div className="obs-tags">
+                          {obs.leafColor && <span className="obs-tag obs-tag-leaf"><Leaf size={11} />{obs.leafColor}</span>}
+                          {obs.growth && <span className="obs-tag obs-tag-growth"><LeafyGreen size={11} />{obs.growth}</span>}
+                          {obs.rootSystem && <span className="obs-tag obs-tag-root"><Sprout size={11} />{obs.rootSystem}</span>}
+                          {obs.yieldEstimate && <span className="obs-tag obs-tag-yield"><Scale size={11} />{obs.yieldEstimate}</span>}
+                        </div>
+                        {obs.anomaly && (
+                          <div className="obs-anomaly">
+                            <Bug size={12} />
+                            <p>{obs.anomaly}</p>
+                          </div>
+                        )}
+                        {obs.memo && <p className="obs-memo">{obs.memo}</p>}
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="empty">暂无观察记录，点击「添加观察」开始记录试验表现。</p>
+                )}
+              </div>
+
+              <div className="trial-detail-section">
+                <div className="trial-section-title"><History size={14} />试验时间线</div>
+                <div className="timeline">
+                  {(selectedTrial.timeline || []).map((step, index) => (
+                    <span key={index}>{step.at} · {step.status} · {step.by}</span>
+                  ))}
+                </div>
+              </div>
+
+              <div className="trial-actions">
+                {selectedTrial.status === '试配中' || selectedTrial.status === '观察中' ? (
+                  <>
+                    <button
+                      type="button"
+                      className="trial-adopt-btn"
+                      onClick={() => { setAdoptTrialId(selectedTrial.id); setAdoptModalOpen(true); }}
+                    >
+                      <CheckCircle size={16} />
+                      采用为正式配方
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost"
+                      onClick={() => updateTrialStatus(selectedTrial.id, '已归档')}
+                    >
+                      <Archive size={14} />
+                      归档试验
+                    </button>
+                  </>
+                ) : selectedTrial.status === '已采用' ? (
+                  <button
+                    type="button"
+                    className="ghost"
+                    onClick={() => updateTrialStatus(selectedTrial.id, '已归档')}
+                  >
+                    <Archive size={14} />
+                    归档试验
+                  </button>
+                ) : (
+                  <span className="trial-archived-tip">该试验已归档</span>
+                )}
+              </div>
+            </div>
+          ) : (
+            <p className="empty">从左侧选择一个试验查看详情，或点击「创建试验」开始新的试验流程。</p>
+          )}
+        </div>
+      </section>
+
+      {adoptModalOpen && adoptTrialId && (
+        <div className="modal-overlay" onClick={() => { setAdoptModalOpen(false); setAdoptTrialId(null); }}>
+          <div className="modal adopt-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title">
+                <CheckCircle size={18} />
+                <h3>采用试验为正式配方</h3>
+              </div>
+              <button type="button" className="modal-close" onClick={() => { setAdoptModalOpen(false); setAdoptTrialId(null); }}>
+                <X size={18} />
+              </button>
+            </div>
+            <div className="modal-body">
+              <div className="adopt-hint">
+                <Info size={20} />
+                <div>
+                  <p>采用此试验将：</p>
+                  <ul>
+                    <li>基于试验配方自动生成新版本的正式配方（状态为「使用中」）</li>
+                    <li>同组旧的「使用中」配方将自动转为「已归档」</li>
+                    <li>试验状态标记为「已采用」，完整试验记录保留可追溯</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button type="button" className="ghost" onClick={() => { setAdoptModalOpen(false); setAdoptTrialId(null); }}>
+                取消
+              </button>
+              <button type="button" className="primary" onClick={() => adoptTrial(adoptTrialId)}>
+                <CheckCircle size={16} />
+                确认采用
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {importModalOpen && (
         <div className="import-modal-overlay" onClick={handleImportCancel}>
           <div className="import-modal" onClick={(e) => e.stopPropagation()}>
@@ -1722,7 +2381,7 @@ function App() {
                     </div>
                   )}
 
-                  <div className="import-preview-stats">
+                  <div className="import-preview-stats import-preview-stats-4">
                     <div className="import-preview-stat">
                       <div className="import-preview-stat-header">
                         <strong>配方记录</strong>
@@ -1754,6 +2413,42 @@ function App() {
                         </span>
                       </div>
                     </div>
+
+                    {importPreview.preview.trials && (
+                      <div className="import-preview-stat">
+                        <div className="import-preview-stat-header">
+                          <strong>试验记录</strong>
+                        </div>
+                        <div className="import-preview-stat-numbers">
+                          <span className="import-preview-number import-preview-new">
+                            <Plus size={14} />
+                            新增 {importPreview.preview.trials.newCount}
+                          </span>
+                          <span className="import-preview-number import-preview-overwrite">
+                            <RefreshCw size={14} />
+                            覆盖 {importPreview.preview.trials.overwriteCount}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
+                    {importPreview.preview.observations && (
+                      <div className="import-preview-stat">
+                        <div className="import-preview-stat-header">
+                          <strong>观察记录</strong>
+                        </div>
+                        <div className="import-preview-stat-numbers">
+                          <span className="import-preview-number import-preview-new">
+                            <Plus size={14} />
+                            新增 {importPreview.preview.observations.newCount}
+                          </span>
+                          <span className="import-preview-number import-preview-overwrite">
+                            <RefreshCw size={14} />
+                            覆盖 {importPreview.preview.observations.overwriteCount}
+                          </span>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {importPreview.preview.formatErrors.length > 0 && (
@@ -1805,6 +2500,8 @@ function App() {
                       <span>
                         共导入 {importPreview.preview.records.newCount + importPreview.preview.records.overwriteCount} 条配方，
                         {importPreview.preview.adjRecords.newCount + importPreview.preview.adjRecords.overwriteCount} 条调整记录
+                        {importPreview.preview.trials && `，${importPreview.preview.trials.newCount + importPreview.preview.trials.overwriteCount} 条试验`}
+                        {importPreview.preview.observations && `，${importPreview.preview.observations.newCount + importPreview.preview.observations.overwriteCount} 条观察记录`}
                       </span>
                     </div>
                   </div>

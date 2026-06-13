@@ -1,7 +1,15 @@
-import { Fragment, useMemo, useState } from 'react';
-import { Sprout, Plus, Search, Trash2, RotateCcw, CheckCircle2, AlertTriangle, ClipboardList, CalendarDays, BookOpen, ChevronDown, ChevronUp, ArrowRight, FileText, Calculator, Droplets, Beaker, Scale, Info, RefreshCw, GitCompareArrows, Grid3X3, Flower2, X, Layers, Archive, ShieldAlert, TrendingDown, TrendingUp, Copy } from 'lucide-react';
+import { Fragment, useMemo, useState, useRef } from 'react';
+import { Sprout, Plus, Search, Trash2, RotateCcw, CheckCircle2, AlertTriangle, ClipboardList, CalendarDays, BookOpen, ChevronDown, ChevronUp, ArrowRight, FileText, Calculator, Droplets, Beaker, Scale, Info, RefreshCw, GitCompareArrows, Grid3X3, Flower2, X, Layers, Archive, ShieldAlert, TrendingDown, TrendingUp, Copy, Download, Upload, Database, HardDriveUpload, HardDriveDownload } from 'lucide-react';
 import './App.css';
 import { recipeTemplates, cropOptions, cropStageRanges } from './recipeTemplates';
+import {
+  exportData,
+  downloadJSON,
+  generateExportFilename,
+  parseImportFile,
+  validateImportData,
+  mergeImportedData,
+} from './dataImportExport';
 
 const appConfig = {
   "id": "hxwl-61302",
@@ -267,6 +275,13 @@ function App() {
   const [boardFilter, setBoardFilter] = useState({ crop: null, stage: null });
   const [warningFilter, setWarningFilter] = useState({ crop: '全部', severity: '全部' });
 
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importPreview, setImportPreview] = useState(null);
+  const [importFileInfo, setImportFileInfo] = useState(null);
+  const [importError, setImportError] = useState(null);
+  const [importProcessing, setImportProcessing] = useState(false);
+  const importFileInputRef = useRef(null);
+
   const boardStages = ['育苗期', '营养生长期', '开花期', '结果期'];
 
   const boardData = useMemo(() => {
@@ -488,6 +503,71 @@ function App() {
     persistAdj(adjRecords.filter((r) => r.id !== id));
   }
 
+  function handleExport() {
+    const jsonStr = exportData(records, adjRecords, appConfig);
+    const filename = generateExportFilename(appConfig);
+    downloadJSON(jsonStr, filename);
+  }
+
+  function handleImportFileSelect(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    setImportFileInfo({
+      name: file.name,
+      size: file.size,
+      lastModified: file.lastModified,
+    });
+    setImportError(null);
+    setImportProcessing(true);
+
+    parseImportFile(file)
+      .then((data) => {
+        const validation = validateImportData(data, records, adjRecords, appConfig);
+        setImportPreview(validation);
+        setImportProcessing(false);
+      })
+      .catch((err) => {
+        setImportError(err.message);
+        setImportProcessing(false);
+        setImportPreview(null);
+      });
+  }
+
+  function triggerImportFileSelect() {
+    setImportModalOpen(true);
+    setImportPreview(null);
+    setImportError(null);
+    setImportFileInfo(null);
+    if (importFileInputRef.current) {
+      importFileInputRef.current.value = '';
+    }
+  }
+
+  function handleImportConfirm() {
+    if (!importPreview || !importPreview.valid) return;
+
+    const merged = mergeImportedData(importPreview.cleanData, records, adjRecords);
+
+    const finalRecords = ensureVersions(merged.records);
+
+    persist(finalRecords);
+    persistAdj(merged.adjRecords);
+
+    setImportModalOpen(false);
+    setImportPreview(null);
+    setImportFileInfo(null);
+
+    alert(`导入成功！\n\n配方记录：新增 ${importPreview.preview.records.newCount} 条，覆盖 ${importPreview.preview.records.overwriteCount} 条\n调整记录：新增 ${importPreview.preview.adjRecords.newCount} 条，覆盖 ${importPreview.preview.adjRecords.overwriteCount} 条`);
+  }
+
+  function handleImportCancel() {
+    setImportModalOpen(false);
+    setImportPreview(null);
+    setImportError(null);
+    setImportFileInfo(null);
+  }
+
   function applySelectedNpkToCalc() {
     if (selected && selected.npk) {
       setCalcForm({ ...calcForm, npkRatio: selected.npk, targetEc: selected.ec });
@@ -640,9 +720,19 @@ function App() {
           <h1>{appConfig.title}</h1>
           <p>{appConfig.subtitle}</p>
         </div>
-        <div className="port-card">
-          <span>Local Port</span>
-          <strong>{appConfig.port}</strong>
+        <div className="hero-actions">
+          <button type="button" className="hero-action-btn" onClick={handleExport}>
+            <HardDriveDownload size={16} />
+            <span>导出数据</span>
+          </button>
+          <button type="button" className="hero-action-btn hero-action-btn-primary" onClick={triggerImportFileSelect}>
+            <HardDriveUpload size={16} />
+            <span>导入数据</span>
+          </button>
+          <div className="port-card">
+            <span>Local Port</span>
+            <strong>{appConfig.port}</strong>
+          </div>
         </div>
       </section>
 
@@ -1425,6 +1515,193 @@ function App() {
           )}
         </div>
       </section>
+
+      {importModalOpen && (
+        <div className="import-modal-overlay" onClick={handleImportCancel}>
+          <div className="import-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="import-modal-header">
+              <div className="import-modal-title">
+                <Database size={20} />
+                <h2>本地数据导入</h2>
+              </div>
+              <button type="button" className="import-modal-close" onClick={handleImportCancel}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="import-modal-body">
+              <input
+                ref={importFileInputRef}
+                type="file"
+                accept=".json,application/json"
+                onChange={handleImportFileSelect}
+                className="import-file-input"
+              />
+
+              {!importFileInfo && !importProcessing && !importError && (
+                <div className="import-drop-zone" onClick={() => importFileInputRef.current?.click()}>
+                  <Upload size={48} />
+                  <h3>点击选择 JSON 文件</h3>
+                  <p>或拖拽文件到此处</p>
+                  <p className="import-hint">支持导入配方记录、状态时间线和调整记录</p>
+                </div>
+              )}
+
+              {importProcessing && (
+                <div className="import-processing">
+                  <RefreshCw size={32} className="spin" />
+                  <p>正在解析文件...</p>
+                </div>
+              )}
+
+              {importError && (
+                <div className="import-error">
+                  <AlertTriangle size={24} />
+                  <h3>导入失败</h3>
+                  <p>{importError}</p>
+                  <button type="button" className="primary" onClick={triggerImportFileSelect}>
+                    重新选择文件
+                  </button>
+                </div>
+              )}
+
+              {importFileInfo && !importProcessing && (
+                <div className="import-file-info">
+                  <div className="import-file-meta">
+                    <FileText size={18} />
+                    <div>
+                      <strong>{importFileInfo.name}</strong>
+                      <span>{(importFileInfo.size / 1024).toFixed(2)} KB</span>
+                    </div>
+                  </div>
+                  <button type="button" className="ghost" onClick={triggerImportFileSelect}>
+                    重新选择
+                  </button>
+                </div>
+              )}
+
+              {importPreview && (
+                <div className="import-preview">
+                  {importPreview.warnings.length > 0 && (
+                    <div className="import-warnings">
+                      <AlertTriangle size={16} />
+                      <div>
+                        {importPreview.warnings.map((w, i) => (
+                          <p key={i}>{w}</p>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="import-preview-stats">
+                    <div className="import-preview-stat">
+                      <div className="import-preview-stat-header">
+                        <strong>配方记录</strong>
+                      </div>
+                      <div className="import-preview-stat-numbers">
+                        <span className="import-preview-number import-preview-new">
+                          <Plus size={14} />
+                          新增 {importPreview.preview.records.newCount}
+                        </span>
+                        <span className="import-preview-number import-preview-overwrite">
+                          <RefreshCw size={14} />
+                          覆盖 {importPreview.preview.records.overwriteCount}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="import-preview-stat">
+                      <div className="import-preview-stat-header">
+                        <strong>调整记录</strong>
+                      </div>
+                      <div className="import-preview-stat-numbers">
+                        <span className="import-preview-number import-preview-new">
+                          <Plus size={14} />
+                          新增 {importPreview.preview.adjRecords.newCount}
+                        </span>
+                        <span className="import-preview-number import-preview-overwrite">
+                          <RefreshCw size={14} />
+                          覆盖 {importPreview.preview.adjRecords.overwriteCount}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {importPreview.preview.formatErrors.length > 0 && (
+                    <div className="import-format-errors">
+                      <div className="import-format-errors-header">
+                        <AlertTriangle size={16} />
+                        <strong>格式错误（{importPreview.preview.formatErrors.length} 项，将被跳过）</strong>
+                      </div>
+                      <div className="import-format-errors-list">
+                        {importPreview.preview.formatErrors.slice(0, 10).map((err, i) => (
+                          <p key={i}>{err}</p>
+                        ))}
+                        {importPreview.preview.formatErrors.length > 10 && (
+                          <p className="import-more-errors">
+                            ...还有 {importPreview.preview.formatErrors.length - 10} 项错误
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {importPreview.preview.records.overwriteItems.length > 0 && (
+                    <div className="import-overwrite-preview">
+                      <div className="import-overwrite-preview-header">
+                        <AlertTriangle size={16} />
+                        <strong>将覆盖的配方记录（{importPreview.preview.records.overwriteItems.length} 条）</strong>
+                      </div>
+                      <div className="import-overwrite-list">
+                        {importPreview.preview.records.overwriteItems.slice(0, 5).map((item) => (
+                          <div key={item.id} className="import-overwrite-item">
+                            <span className="import-overwrite-crop">{item.crop}</span>
+                            <span className="import-overwrite-stage">{item.stage}</span>
+                            <span className="import-overwrite-version">v{item.version || '?'}</span>
+                            <span className="import-overwrite-status">{item.status}</span>
+                          </div>
+                        ))}
+                        {importPreview.preview.records.overwriteItems.length > 5 && (
+                          <p className="import-more-errors">
+                            ...还有 {importPreview.preview.records.overwriteItems.length - 5} 条记录将被覆盖
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="import-preview-footer">
+                    <div className="import-preview-total">
+                      <Database size={16} />
+                      <span>
+                        共导入 {importPreview.preview.records.newCount + importPreview.preview.records.overwriteCount} 条配方，
+                        {importPreview.preview.adjRecords.newCount + importPreview.preview.adjRecords.overwriteCount} 条调整记录
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {importPreview && importPreview.valid && (
+              <div className="import-modal-footer">
+                <button type="button" className="ghost" onClick={handleImportCancel}>
+                  取消
+                </button>
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={handleImportConfirm}
+                  disabled={!importPreview.valid}
+                >
+                  <CheckCircle2 size={16} />
+                  确认导入
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </main>
   );
 }

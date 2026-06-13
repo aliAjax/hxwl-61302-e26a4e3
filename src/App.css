@@ -910,9 +910,26 @@ textarea { min-height: 76px; resize: vertical; }
   padding: 24px 0;
 }
 
-.cmp-result {
-  display: grid;
-  gap: 18px;
+.cmp-group-hint {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  color: #1d4ed8;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.cmp-group-hint svg {
+  flex-shrink: 0;
+}
+
+.cmp-group-hint strong {
+  color: #1e40af;
+  font-weight: 700;
 }
 
 .cmp-table {
@@ -973,6 +990,13 @@ textarea { min-height: 76px; resize: vertical; }
   font-weight: 700;
 }
 
+.cmp-badge-sm {
+  margin-left: 8px;
+  padding: 1px 6px;
+  font-size: 10px;
+  vertical-align: middle;
+}
+
 .cmp-divider {
   display: flex;
   align-items: center;
@@ -993,6 +1017,16 @@ textarea { min-height: 76px; resize: vertical; }
 
 .cmp-divider span {
   white-space: nowrap;
+}
+
+.cmp-timeline-diff-count {
+  margin-left: auto;
+  padding: 2px 10px;
+  background: #fef3c7;
+  color: #92400e;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .cmp-timeline-pair {
@@ -1029,6 +1063,26 @@ textarea { min-height: 76px; resize: vertical; }
   font-size: 13px;
   line-height: 1.5;
   border-radius: 0 4px 4px 0;
+}
+
+.cmp-timeline-step.cmp-timeline-unique {
+  border-left-color: #f59e0b;
+  background: #fffbeb;
+  color: #92400e;
+  font-weight: 600;
+}
+
+.cmp-unique-tag {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 7px;
+  background: #f59e0b;
+  color: #ffffff;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  font-style: normal;
+  vertical-align: middle;
 }
 
 .cmp-timeline-empty {

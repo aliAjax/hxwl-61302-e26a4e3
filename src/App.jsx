@@ -452,6 +452,7 @@ function App() {
     if (cmpCrop === '全部') return [...new Set(records.map((r) => r.stage))];
     return [...new Set(records.filter((r) => r.crop === cmpCrop).map((r) => r.stage))];
   }, [records, cmpCrop]);
+  const cmpSameGroup = cmpCrop !== '全部' && cmpStage !== '全部';
   const cmpCandidates = useMemo(() => {
     return records.filter((r) => {
       if (cmpCrop !== '全部' && r.crop !== cmpCrop) return false;
@@ -461,6 +462,24 @@ function App() {
   }, [records, cmpCrop, cmpStage]);
   const cmpLeftRecord = useMemo(() => records.find((r) => r.id === cmpLeft), [records, cmpLeft]);
   const cmpRightRecord = useMemo(() => records.find((r) => r.id === cmpRight), [records, cmpRight]);
+
+  function timelineKey(step) {
+    return `${step.status}||${step.at}||${step.by}`;
+  }
+
+  const cmpTimelineDiff = useMemo(() => {
+    if (!cmpLeftRecord || !cmpRightRecord) return null;
+    const leftKeys = new Set((cmpLeftRecord.timeline || []).map(timelineKey));
+    const rightKeys = new Set((cmpRightRecord.timeline || []).map(timelineKey));
+    const leftUnique = (cmpLeftRecord.timeline || []).filter((s) => !rightKeys.has(timelineKey(s)));
+    const rightUnique = (cmpRightRecord.timeline || []).filter((s) => !leftKeys.has(timelineKey(s)));
+    return {
+      leftUnique: new Set(leftUnique.map(timelineKey)),
+      rightUnique: new Set(rightUnique.map(timelineKey)),
+      leftCount: leftUnique.length,
+      rightCount: rightUnique.length,
+    };
+  }, [cmpLeftRecord, cmpRightRecord]);
 
   const filteredRecords = useMemo(() => {
     return records
@@ -963,10 +982,17 @@ function App() {
                 {cmpStageOptions.map((s) => <option key={s}>{s}</option>)}
               </select>
             </label>
-            <span className="cmp-count">共 {cmpCandidates.length} 个版本可选</span>
+            <span className="cmp-count">{cmpSameGroup ? `同组共 ${cmpCandidates.length} 个版本` : '请选择同组'}</span>
           </div>
 
-          {cmpCandidates.length >= 2 ? (
+          {!cmpSameGroup ? (
+            <div className="cmp-group-hint">
+              <Info size={20} />
+              <p>请先选择具体的<strong>作物</strong>和<strong>生长期</strong>，版本对比仅在同一作物同一生长期下进行。</p>
+            </div>
+          ) : cmpCandidates.length < 2 ? (
+            <p className="cmp-hint">该分组下只有 {cmpCandidates.length} 个版本，至少需要 2 个版本才能进行对比。</p>
+          ) : (
             <div className="cmp-selectors">
               <label>
                 <span>版本 A</span>
@@ -992,11 +1018,9 @@ function App() {
                 </select>
               </label>
             </div>
-          ) : (
-            <p className="cmp-hint">请先选择同一作物与生长期，至少需要 2 个版本才能进行对比。</p>
           )}
 
-          {cmpLeftRecord && cmpRightRecord && (
+          {cmpLeftRecord && cmpRightRecord && cmpSameGroup && (
             <div className="cmp-result">
               <table className="cmp-table">
                 <thead>
@@ -1029,28 +1053,57 @@ function App() {
                 </tbody>
               </table>
 
-              <div className="cmp-divider"><span>状态时间线对比</span></div>
+              <div className="cmp-divider">
+                <span>状态时间线对比</span>
+                {cmpTimelineDiff && (cmpTimelineDiff.leftCount > 0 || cmpTimelineDiff.rightCount > 0) && (
+                  <span className="cmp-timeline-diff-count">
+                    共 {cmpTimelineDiff.leftCount + cmpTimelineDiff.rightCount} 处差异
+                  </span>
+                )}
+              </div>
 
               <div className="cmp-timeline-pair">
                 <div className="cmp-timeline-col">
-                  <strong>v{cmpLeftRecord.version || '?'} 时间线</strong>
+                  <strong>
+                    v{cmpLeftRecord.version || '?'} 时间线
+                    {cmpTimelineDiff && cmpTimelineDiff.leftCount > 0 && (
+                      <span className="cmp-badge cmp-badge-sm">独有 {cmpTimelineDiff.leftCount}</span>
+                    )}
+                  </strong>
                   {(cmpLeftRecord.timeline || []).length > 0 ? (
                     <div className="cmp-timeline-list">
-                      {(cmpLeftRecord.timeline || []).map((step, i) => (
-                        <span key={i} className="cmp-timeline-step">{step.at} · {step.status} · {step.by}</span>
-                      ))}
+                      {(cmpLeftRecord.timeline || []).map((step, i) => {
+                        const isUnique = cmpTimelineDiff?.leftUnique?.has(timelineKey(step));
+                        return (
+                          <span key={i} className={'cmp-timeline-step ' + (isUnique ? 'cmp-timeline-unique' : '')}>
+                            {step.at} · {step.status} · {step.by}
+                            {isUnique && <em className="cmp-unique-tag">独有</em>}
+                          </span>
+                        );
+                      })}
                     </div>
                   ) : (
                     <span className="cmp-timeline-empty">无时间线记录</span>
                   )}
                 </div>
                 <div className="cmp-timeline-col">
-                  <strong>v{cmpRightRecord.version || '?'} 时间线</strong>
+                  <strong>
+                    v{cmpRightRecord.version || '?'} 时间线
+                    {cmpTimelineDiff && cmpTimelineDiff.rightCount > 0 && (
+                      <span className="cmp-badge cmp-badge-sm">独有 {cmpTimelineDiff.rightCount}</span>
+                    )}
+                  </strong>
                   {(cmpRightRecord.timeline || []).length > 0 ? (
                     <div className="cmp-timeline-list">
-                      {(cmpRightRecord.timeline || []).map((step, i) => (
-                        <span key={i} className="cmp-timeline-step">{step.at} · {step.status} · {step.by}</span>
-                      ))}
+                      {(cmpRightRecord.timeline || []).map((step, i) => {
+                        const isUnique = cmpTimelineDiff?.rightUnique?.has(timelineKey(step));
+                        return (
+                          <span key={i} className={'cmp-timeline-step ' + (isUnique ? 'cmp-timeline-unique' : '')}>
+                            {step.at} · {step.status} · {step.by}
+                            {isUnique && <em className="cmp-unique-tag">独有</em>}
+                          </span>
+                        );
+                      })}
                     </div>
                   ) : (
                     <span className="cmp-timeline-empty">无时间线记录</span>

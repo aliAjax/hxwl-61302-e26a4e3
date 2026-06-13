@@ -60,10 +60,20 @@ const recipeTemplates = [
     memo: '适合水培槽第3周，高硝态氮促叶片生长'
   },
   {
+    id: 'lettuce-flowering',
+    crop: '生菜',
+    name: '生菜 · 开花期',
+    stage: '开花期',
+    ec: '1.5',
+    ph: '6.0',
+    npk: '12-8-24',
+    memo: '抽薹前期适当控氮，保持叶片紧凑并降低苦味'
+  },
+  {
     id: 'lettuce-heading',
     crop: '生菜',
     name: '生菜 · 结球期',
-    stage: '开花期',
+    stage: '结球期',
     ec: '1.6',
     ph: '5.9',
     npk: '10-12-28',

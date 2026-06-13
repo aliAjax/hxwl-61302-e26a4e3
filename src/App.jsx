@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { Sprout, Plus, Search, Trash2, RotateCcw, CheckCircle2, AlertTriangle, ClipboardList, CalendarDays, BookOpen, ChevronDown, ChevronUp, ArrowRight, FileText, Calculator, Droplets, Beaker, Scale, Info, RefreshCw, GitCompareArrows } from 'lucide-react';
+import { Fragment, useMemo, useState } from 'react';
+import { Sprout, Plus, Search, Trash2, RotateCcw, CheckCircle2, AlertTriangle, ClipboardList, CalendarDays, BookOpen, ChevronDown, ChevronUp, ArrowRight, FileText, Calculator, Droplets, Beaker, Scale, Info, RefreshCw, GitCompareArrows, Grid3X3, Flower2, X, Layers, Archive } from 'lucide-react';
 import './App.css';
 import { recipeTemplates, cropOptions } from './recipeTemplates';
 
@@ -264,6 +264,70 @@ function App() {
   const [cmpLeft, setCmpLeft] = useState('');
   const [cmpRight, setCmpRight] = useState('');
 
+  const [boardFilter, setBoardFilter] = useState({ crop: null, stage: null });
+
+  const boardStages = ['育苗期', '营养生长期', '开花期', '结果期'];
+
+  const boardData = useMemo(() => {
+    const result = {};
+    cropOptions.forEach((crop) => {
+      result[crop] = {};
+      boardStages.forEach((stage) => {
+        const groupRecipes = records.filter((r) => r.crop === crop && r.stage === stage);
+        const inUse = groupRecipes.filter((r) => r.status === '使用中').sort((a, b) => (b.version || 0) - (a.version || 0));
+        const trial = groupRecipes.filter((r) => r.status === '试配');
+        const archived = groupRecipes.filter((r) => r.status === '已归档');
+        result[crop][stage] = {
+          recipes: groupRecipes,
+          inUse: inUse[0] || null,
+          inUseCount: inUse.length,
+          trialCount: trial.length,
+          archivedCount: archived.length,
+          total: groupRecipes.length
+        };
+      });
+    });
+    return result;
+  }, [records]);
+
+  function handleBoardCellClick(crop, stage) {
+    const cell = boardData[crop]?.[stage];
+    setBoardFilter({ crop, stage });
+    setFilters({ ...filters, query: '', status: '全部' });
+    if (cell?.inUse) {
+      setSelected(cell.inUse);
+    } else if (cell?.recipes.length > 0) {
+      const latest = cell.recipes.sort((a, b) => (b.version || 0) - (a.version || 0))[0];
+      setSelected(latest);
+    } else {
+      const template = recipeTemplates.find((t) => t.crop === crop && t.stage === stage);
+      if (template) {
+        setForm({
+          ...form,
+          crop: template.crop,
+          stage: template.stage,
+          ec: template.ec,
+          ph: template.ph,
+          npk: template.npk,
+          memo: template.memo,
+          status: appConfig.primaryStatus
+        });
+      } else {
+        setForm({
+          ...form,
+          crop,
+          stage,
+          status: appConfig.primaryStatus
+        });
+      }
+      setSelected(null);
+    }
+  }
+
+  function clearBoardFilter() {
+    setBoardFilter({ crop: null, stage: null });
+  }
+
   function persist(next) {
     setRecords(next);
     localStorage.setItem(appConfig.storage, JSON.stringify(next));
@@ -496,6 +560,15 @@ function App() {
       });
   }, [records, filters]);
 
+  const boardFilteredRecords = useMemo(() => {
+    if (!boardFilter.crop && !boardFilter.stage) return filteredRecords;
+    return filteredRecords.filter((r) => {
+      if (boardFilter.crop && r.crop !== boardFilter.crop) return false;
+      if (boardFilter.stage && r.stage !== boardFilter.stage) return false;
+      return true;
+    });
+  }, [filteredRecords, boardFilter]);
+
   const metrics = [
     { label: "作物数", value: new Set(records.map((item) => item.crop)).size },
     { label: "使用中", value: records.filter((item) => item.status === '使用中').length },
@@ -539,6 +612,100 @@ function App() {
             <strong>{metric.value}</strong>
           </article>
         ))}
+      </section>
+
+      <section className="board-section">
+        <div className="panel board-panel">
+          <div className="panel-title">
+            <Grid3X3 size={18} />
+            <h2>作物生长期配方看板</h2>
+            {boardFilter.crop || boardFilter.stage ? (
+              <button type="button" className="board-clear-filter" onClick={clearBoardFilter}>
+                <X size={14} />
+                <span>清除筛选（{boardFilter.crop || '全部作物'} · {boardFilter.stage || '全部生长期'}）</span>
+              </button>
+            ) : null}
+            <span className="board-tip">点击格子筛选配方，空格子可快速新建</span>
+          </div>
+
+          <div className="board-grid">
+            <div className="board-corner"></div>
+            {boardStages.map((stage) => (
+              <div className="board-stage-head" key={stage}>
+                <Flower2 size={14} />
+                <span>{stage}</span>
+              </div>
+            ))}
+
+            {cropOptions.map((crop) => (
+              <Fragment key={crop}>
+                <div className="board-crop-head">
+                  <Sprout size={14} />
+                  <span>{crop}</span>
+                </div>
+                {boardStages.map((stage) => {
+                  const cell = boardData[crop][stage];
+                  const isFiltered = boardFilter.crop === crop && boardFilter.stage === stage;
+                  const isEmpty = cell.total === 0;
+
+                  if (isEmpty) {
+                    return (
+                      <button
+                        key={`cell-${crop}-${stage}`}
+                        className={'board-cell board-cell-empty ' + (isFiltered ? 'board-cell-active' : '')}
+                        onClick={() => handleBoardCellClick(crop, stage)}
+                      >
+                        <div className="board-cell-empty-icon">
+                          <Plus size={20} />
+                        </div>
+                        <span className="board-cell-empty-text">暂无配方</span>
+                        <span className="board-cell-empty-action">点击快速新建</span>
+                      </button>
+                    );
+                  }
+
+                  return (
+                    <button
+                      key={`cell-${crop}-${stage}`}
+                      className={'board-cell ' + (isFiltered ? 'board-cell-active' : '')}
+                      onClick={() => handleBoardCellClick(crop, stage)}
+                    >
+                      {cell.inUse ? (
+                        <div className="board-cell-main">
+                          <div className="board-cell-title">
+                            <strong>EC {cell.inUse.ec}</strong>
+                            <span className="board-cell-ph">pH {cell.inUse.ph}</span>
+                          </div>
+                          <div className="board-cell-npk">{cell.inUse.npk}</div>
+                          <div className="board-cell-memo">{cell.inUse.memo}</div>
+                        </div>
+                      ) : (
+                        <div className="board-cell-main">
+                          <div className="board-cell-no-use">暂无使用中配方</div>
+                        </div>
+                      )}
+                      <div className="board-cell-stats">
+                        {cell.trialCount > 0 && (
+                          <span className="board-stat board-stat-trial">
+                            <Layers size={11} />
+                            试配 {cell.trialCount}
+                          </span>
+                        )}
+                        {cell.archivedCount > 0 && (
+                          <span className="board-stat board-stat-archived">
+                            <Archive size={11} />
+                            归档 {cell.archivedCount}
+                          </span>
+                        )}
+                      </div>
+                      {cell.inUse?.version && <span className="board-cell-version">v{cell.inUse.version}</span>}
+                    </button>
+                  );
+                })}
+              </Fragment>
+            ))}
+          </div>
+        </div>
       </section>
 
       <section className="workspace">
@@ -614,6 +781,15 @@ function App() {
         </form>
 
         <section className="panel list-panel">
+          {(boardFilter.crop || boardFilter.stage) && (
+            <div className="board-filter-banner">
+              <Grid3X3 size={14} />
+              <span>看板筛选：<strong>{boardFilter.crop || '全部作物'}</strong> · <strong>{boardFilter.stage || '全部生长期'}</strong></span>
+              <button type="button" onClick={clearBoardFilter}>
+                <X size={13} />清除
+              </button>
+            </div>
+          )}
           <div className="toolbar">
             <div className="search">
               <Search size={16} />
@@ -626,7 +802,7 @@ function App() {
           </div>
 
           <div className="records">
-            {filteredRecords.map((item) => (
+            {(boardFilter.crop || boardFilter.stage ? boardFilteredRecords : filteredRecords).map((item) => (
               <article className={'record ' + (item.conflict || hasOverlap(item, records) ? 'conflict' : '')} key={item.id} onClick={() => setSelected(item)}>
                 <div className="record-head">
                   <div>

@@ -1,7 +1,8 @@
 import { Fragment, useMemo, useState, useRef } from 'react';
-import { Sprout, Plus, Search, Trash2, RotateCcw, CheckCircle2, AlertTriangle, ClipboardList, CalendarDays, BookOpen, ChevronDown, ChevronUp, ArrowRight, FileText, Calculator, Droplets, Beaker, Scale, Info, RefreshCw, GitCompareArrows, Grid3X3, Flower2, X, Layers, Archive, ShieldAlert, TrendingDown, TrendingUp, Copy, Download, Upload, Database, HardDriveUpload, HardDriveDownload } from 'lucide-react';
+import { Sprout, Plus, Search, Trash2, RotateCcw, CheckCircle2, AlertTriangle, ClipboardList, CalendarDays, BookOpen, ChevronDown, ChevronUp, ArrowRight, FileText, Calculator, Droplets, Beaker, Scale, Info, RefreshCw, GitCompareArrows, Grid3X3, Flower2, X, Layers, Archive, ShieldAlert, TrendingDown, TrendingUp, Copy, Download, Upload, Database, HardDriveUpload, HardDriveDownload, Calendar } from 'lucide-react';
 import './App.css';
 import { recipeTemplates, cropOptions, cropStageRanges } from './recipeTemplates';
+import RecipeCalendar from './RecipeCalendar';
 import {
   exportData,
   downloadJSON,
@@ -258,6 +259,9 @@ function App() {
   const [adjFilters, setAdjFilters] = useState({ crop: '全部', stage: '全部' });
   const [adjFormVisible, setAdjFormVisible] = useState(false);
 
+  const [scheduleFormOpen, setScheduleFormOpen] = useState(false);
+  const [scheduleForm, setScheduleForm] = useState({ startDate: '', endDate: '' });
+
   const [calcForm, setCalcForm] = useState({
     waterVolume: '100',
     stockMultiplier: '100',
@@ -280,6 +284,7 @@ function App() {
   const [importFileInfo, setImportFileInfo] = useState(null);
   const [importError, setImportError] = useState(null);
   const [importProcessing, setImportProcessing] = useState(false);
+  const [importDragActive, setImportDragActive] = useState(false);
   const importFileInputRef = useRef(null);
 
   const boardStages = ['育苗期', '营养生长期', '开花期', '结果期'];
@@ -445,6 +450,39 @@ function App() {
     if (selected?.id === id) setSelected(next.find((item) => item.id === id));
   }
 
+  function updateSchedule(id, startDate, endDate) {
+    const next = records.map((item) => item.id === id ? {
+      ...item,
+      startDate: startDate || undefined,
+      endDate: endDate || undefined
+    } : item);
+    persist(next);
+    if (selected?.id === id) setSelected(next.find((item) => item.id === id));
+  }
+
+  function handleSaveSchedule() {
+    if (selected) {
+      updateSchedule(selected.id, scheduleForm.startDate, scheduleForm.endDate);
+      setScheduleFormOpen(false);
+    }
+  }
+
+  function handleClearSchedule() {
+    if (selected) {
+      updateSchedule(selected.id, '', '');
+      setScheduleFormOpen(false);
+    }
+  }
+
+  function handleOpenSchedule(recipe) {
+    setSelected(recipe);
+    setScheduleForm({
+      startDate: recipe.startDate || '',
+      endDate: recipe.endDate || ''
+    });
+    setScheduleFormOpen(true);
+  }
+
   function removeRecord(id) {
     const next = records.filter((item) => item.id !== id);
     persist(next);
@@ -532,6 +570,58 @@ function App() {
         setImportProcessing(false);
         setImportPreview(null);
       });
+  }
+
+  function handleImportDrop(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    setImportDragActive(false);
+
+    const file = event.dataTransfer?.files?.[0];
+    if (!file) return;
+    if (!file.name.endsWith('.json') && file.type !== 'application/json') {
+      setImportError('仅支持 .json 格式的文件');
+      return;
+    }
+
+    setImportFileInfo({
+      name: file.name,
+      size: file.size,
+      lastModified: file.lastModified,
+    });
+    setImportError(null);
+    setImportProcessing(true);
+
+    parseImportFile(file)
+      .then((data) => {
+        const validation = validateImportData(data, records, adjRecords, appConfig);
+        setImportPreview(validation);
+        setImportProcessing(false);
+      })
+      .catch((err) => {
+        setImportError(err.message);
+        setImportProcessing(false);
+        setImportPreview(null);
+      });
+  }
+
+  function handleImportDragOver(event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  function handleImportDragEnter(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    setImportDragActive(true);
+  }
+
+  function handleImportDragLeave(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!event.currentTarget.contains(event.relatedTarget)) {
+      setImportDragActive(false);
+    }
   }
 
   function triggerImportFileSelect() {
@@ -845,6 +935,13 @@ function App() {
         </div>
       </section>
 
+      <RecipeCalendar
+        records={records}
+        onSelectRecipe={setSelected}
+        onOpenSchedule={handleOpenSchedule}
+        selectedRecord={selected}
+      />
+
       <section className="warning-section">
         <div className="panel warning-panel">
           <div className="panel-title">
@@ -1099,6 +1196,33 @@ function App() {
                   <span key={index}>{step.at} · {step.status} · {step.by}</span>
                 ))}
               </div>
+              <div className="schedule-section">
+                <div className="schedule-info">
+                  <Calendar size={14} />
+                  <span className="schedule-label">使用排期：</span>
+                  {selected.startDate ? (
+                    <span className="schedule-date">
+                      {selected.startDate} ~ {selected.endDate || '至今'}
+                    </span>
+                  ) : (
+                    <span className="schedule-none">未排期</span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  className="schedule-btn"
+                  onClick={() => {
+                    setScheduleForm({
+                      startDate: selected.startDate || '',
+                      endDate: selected.endDate || ''
+                    });
+                    setScheduleFormOpen(true);
+                  }}
+                >
+                  <CalendarDays size={14} />
+                  {selected.startDate ? '修改排期' : '安排日期'}
+                </button>
+              </div>
               <div className="adj-section">
                 <button type="button" className="adj-toggle" onClick={() => { setAdjFormVisible(!adjFormVisible); setAdjForm({ sourceId: '', reason: '', adjustments: '', observations: '' }); }}>
                   <FileText size={16} />
@@ -1137,6 +1261,64 @@ function App() {
           )}
         </aside>
       </section>
+
+      {scheduleFormOpen && selected && (
+        <div className="modal-overlay" onClick={() => setScheduleFormOpen(false)}>
+          <div className="modal schedule-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title">
+                <Calendar size={18} />
+                <h3>安排使用日期</h3>
+              </div>
+              <button type="button" className="modal-close" onClick={() => setScheduleFormOpen(false)}>
+                <X size={18} />
+              </button>
+            </div>
+            <div className="modal-body">
+              <div className="schedule-form-info">
+                <strong>{selected.crop} · {selected.stage}</strong>
+                <span className="version-tag">v{selected.version || '?'}</span>
+                <span className={'status ' + statusClass(selected.status)}>{selected.status}</span>
+              </div>
+              <div className="schedule-form-grid">
+                <label>
+                  <span>开始日期</span>
+                  <input
+                    type="date"
+                    value={scheduleForm.startDate}
+                    onChange={(e) => setScheduleForm({ ...scheduleForm, startDate: e.target.value })}
+                  />
+                </label>
+                <label>
+                  <span>结束日期（可选）</span>
+                  <input
+                    type="date"
+                    value={scheduleForm.endDate}
+                    onChange={(e) => setScheduleForm({ ...scheduleForm, endDate: e.target.value })}
+                  />
+                </label>
+              </div>
+              <p className="schedule-hint">
+                <Layers size={12} />
+                设置使用周期后，配方将在日历视图中对应日期显示。
+              </p>
+            </div>
+            <div className="modal-footer">
+              {selected.startDate && (
+                <button type="button" className="ghost-danger" onClick={handleClearSchedule}>
+                  清除排期
+                </button>
+              )}
+              <button type="button" className="ghost" onClick={() => setScheduleFormOpen(false)}>
+                取消
+              </button>
+              <button type="button" className="primary" onClick={handleSaveSchedule}>
+                保存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <section className="calc-section">
         <div className="panel calc-form-panel">
@@ -1539,7 +1721,14 @@ function App() {
               />
 
               {!importFileInfo && !importProcessing && !importError && (
-                <div className="import-drop-zone" onClick={() => importFileInputRef.current?.click()}>
+                <div
+                  className={'import-drop-zone' + (importDragActive ? ' import-drop-zone-active' : '')}
+                  onClick={() => importFileInputRef.current?.click()}
+                  onDrop={handleImportDrop}
+                  onDragOver={handleImportDragOver}
+                  onDragEnter={handleImportDragEnter}
+                  onDragLeave={handleImportDragLeave}
+                >
                   <Upload size={48} />
                   <h3>点击选择 JSON 文件</h3>
                   <p>或拖拽文件到此处</p>

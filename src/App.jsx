@@ -675,18 +675,21 @@ function App() {
       fromTrialId: trial.id
     };
 
-    const nextRecords = [adoptedRecipe, ...records];
-    persist(ensureVersions(nextRecords));
+    const allInUseIds = sameGroup
+      .filter((r) => r.status === '使用中')
+      .map((r) => r.id);
 
-    const previousInUse = sameGroup.filter((r) => r.status === '使用中' && r.id !== sourceRecipe.id);
-    if (previousInUse.length > 0) {
-      const archivedRecords = nextRecords.map((r) =>
-        previousInUse.some((p) => p.id === r.id)
-          ? { ...r, status: '已归档', timeline: [...(r.timeline || []), { status: '已归档', at: today, by: '新版本采用自动归档' }] }
+    let nextRecords = [adoptedRecipe, ...records];
+
+    if (allInUseIds.length > 0) {
+      nextRecords = nextRecords.map((r) =>
+        allInUseIds.includes(r.id)
+          ? { ...r, status: '已归档', timeline: [...(r.timeline || []), { status: '已归档', at: today, by: `新版本 v${nextVer} 采用自动归档` }] }
           : r
       );
-      persist(ensureVersions(archivedRecords));
     }
+
+    persist(ensureVersions(nextRecords));
 
     const nextTrials = trials.map((t) => t.id === trialId ? {
       ...t,

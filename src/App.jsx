@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Sprout, Plus, Search, Trash2, RotateCcw, CheckCircle2, AlertTriangle, ClipboardList, CalendarDays, BookOpen, ChevronDown, ChevronUp, ArrowRight, FileText } from 'lucide-react';
+import { Sprout, Plus, Search, Trash2, RotateCcw, CheckCircle2, AlertTriangle, ClipboardList, CalendarDays, BookOpen, ChevronDown, ChevronUp, ArrowRight, FileText, Calculator, Droplets, Beaker, Scale, Info, RefreshCw } from 'lucide-react';
 import './App.css';
 import { recipeTemplates, cropOptions } from './recipeTemplates';
 
@@ -230,6 +230,15 @@ function App() {
   const [adjFilters, setAdjFilters] = useState({ crop: '全部', stage: '全部' });
   const [adjFormVisible, setAdjFormVisible] = useState(false);
 
+  const [calcForm, setCalcForm] = useState({
+    waterVolume: '100',
+    stockMultiplier: '100',
+    targetEc: '1.8',
+    npkRatio: '15-5-30'
+  });
+  const [calcResult, setCalcResult] = useState(null);
+  const [calcNote, setCalcNote] = useState('');
+
   function persist(next) {
     setRecords(next);
     localStorage.setItem(appConfig.storage, JSON.stringify(next));
@@ -343,6 +352,60 @@ function App() {
 
   function removeAdjRecord(id) {
     persistAdj(adjRecords.filter((r) => r.id !== id));
+  }
+
+  function applySelectedNpkToCalc() {
+    if (selected && selected.npk) {
+      setCalcForm({ ...calcForm, npkRatio: selected.npk, targetEc: selected.ec });
+    }
+  }
+
+  function calculateMixing(event) {
+    event?.preventDefault();
+    const water = Number(calcForm.waterVolume) || 0;
+    const multiplier = Number(calcForm.stockMultiplier) || 1;
+    const ec = Number(calcForm.targetEc) || 0;
+    const npkStr = calcForm.npkRatio || '';
+    const npkParts = npkStr.split('-').map((v) => Number(v.trim()) || 0);
+    const n = npkParts[0] || 0;
+    const p = npkParts[1] || 0;
+    const k = npkParts[2] || 0;
+    const npkSum = n + p + k;
+
+    const factor = 1.0;
+    const totalFertilizer = ec * water * factor;
+
+    const nAmount = npkSum > 0 ? (totalFertilizer * n) / npkSum : 0;
+    const pAmount = npkSum > 0 ? (totalFertilizer * p) / npkSum : 0;
+    const kAmount = npkSum > 0 ? (totalFertilizer * k) / npkSum : 0;
+
+    const stockVolumeMl = (water / multiplier) * 1000;
+    const cleanWater = water - stockVolumeMl / 1000;
+    const workingDilutionRatio = multiplier;
+
+    const warnings = [];
+    if (multiplier < 1) warnings.push('母液倍数不能小于 1');
+    if (multiplier > 500) warnings.push('母液倍数过高，建议不超过 500 倍');
+    if (ec < 0.4) warnings.push('目标 EC 偏低，苗期请逐步提高');
+    if (ec > 3.0) warnings.push('目标 EC 偏高，注意防止烧苗');
+    if (npkSum === 0) warnings.push('NPK 比例格式异常，应为如「15-5-30」');
+    if (water <= 0) warnings.push('水量必须大于 0');
+
+    setCalcResult({
+      water,
+      multiplier,
+      ec,
+      npk: { n, p, k, sum: npkSum },
+      totalFertilizer: Number(totalFertilizer.toFixed(2)),
+      nAmount: Number(nAmount.toFixed(2)),
+      pAmount: Number(pAmount.toFixed(2)),
+      kAmount: Number(kAmount.toFixed(2)),
+      stockVolumeMl: Number(stockVolumeMl.toFixed(0)),
+      cleanWater: Number(cleanWater.toFixed(2)),
+      workingDilutionRatio,
+      warnings,
+      calculatedAt: new Date().toLocaleString('zh-CN')
+    });
   }
 
   const filteredAdjRecords = useMemo(() => {
@@ -608,6 +671,178 @@ function App() {
             <p className="empty">点击任意记录查看详情和状态流转。</p>
           )}
         </aside>
+      </section>
+
+      <section className="calc-section">
+        <div className="panel calc-form-panel">
+          <div className="panel-title">
+            <Calculator size={18} />
+            <h2>营养液混配计算器</h2>
+            {selected && (
+              <button type="button" className="calc-autofill" onClick={applySelectedNpkToCalc}>
+                <RefreshCw size={13} />
+                <span>带入当前配方</span>
+              </button>
+            )}
+          </div>
+
+          <form className="calc-form" onSubmit={calculateMixing}>
+            <div className="calc-grid">
+              <label>
+                <span className="calc-label-head"><Droplets size={13} />目标水量</span>
+                <div className="calc-input-wrap">
+                  <input type="number" step="1" min="0" value={calcForm.waterVolume} onChange={(e) => setCalcForm({ ...calcForm, waterVolume: e.target.value })} placeholder="如 100" />
+                  <span className="calc-unit">L</span>
+                </div>
+              </label>
+              <label>
+                <span className="calc-label-head"><Beaker size={13} />母液倍数</span>
+                <div className="calc-input-wrap">
+                  <input type="number" step="1" min="1" value={calcForm.stockMultiplier} onChange={(e) => setCalcForm({ ...calcForm, stockMultiplier: e.target.value })} placeholder="如 100" />
+                  <span className="calc-unit">×</span>
+                </div>
+              </label>
+              <label>
+                <span className="calc-label-head"><Scale size={13} />目标 EC</span>
+                <div className="calc-input-wrap">
+                  <input type="number" step="0.1" min="0" value={calcForm.targetEc} onChange={(e) => setCalcForm({ ...calcForm, targetEc: e.target.value })} placeholder="如 2.0" />
+                  <span className="calc-unit">mS/cm</span>
+                </div>
+              </label>
+              <label>
+                <span className="calc-label-head">氮磷钾比例 N-P-K</span>
+                <input type="text" value={calcForm.npkRatio} onChange={(e) => setCalcForm({ ...calcForm, npkRatio: e.target.value })} placeholder="如 15-5-30" />
+              </label>
+            </div>
+
+            <div className="calc-form-foot">
+              <button className="primary" type="submit"><Calculator size={16} />开始计算</button>
+              <p className="hint">
+                <Info size={13} />按简化模型估算：总肥量 ≈ EC × 水量，按 NPK 比例拆分各元素。母液按倍数稀释，最终建议量请结合实际 EC 校准。
+              </p>
+            </div>
+          </form>
+        </div>
+
+        <div className="panel calc-result-panel">
+          <div className="panel-title">
+            <CheckCircle2 size={18} />
+            <h2>本次混配建议</h2>
+          </div>
+
+          {calcResult ? (
+            <div className="calc-result">
+              {calcResult.warnings.length > 0 && (
+                <div className="calc-warnings">
+                  {calcResult.warnings.map((w, i) => (
+                    <div className="calc-warning" key={i}><AlertTriangle size={14} />{w}</div>
+                  ))}
+                </div>
+              )}
+
+              <div className="calc-summary">
+                <div className="calc-summary-item">
+                  <span>配置总水量</span>
+                  <strong>{calcResult.water} L</strong>
+                </div>
+                <div className="calc-summary-item">
+                  <span>稀释倍数</span>
+                  <strong>1 : {calcResult.workingDilutionRatio}</strong>
+                </div>
+                <div className="calc-summary-item">
+                  <span>目标 EC</span>
+                  <strong>{calcResult.ec} mS/cm</strong>
+                </div>
+                <div className="calc-summary-item calc-highlight">
+                  <span>总肥料估算</span>
+                  <strong>{calcResult.totalFertilizer} g</strong>
+                </div>
+              </div>
+
+              <div className="calc-divider"><span>元素用量拆分</span></div>
+
+              <div className="calc-elements">
+                <div className="calc-element calc-element-n">
+                  <div className="calc-element-head">
+                    <strong>N 氮</strong>
+                    <span className="calc-element-ratio">{calcResult.npk.n} 份</span>
+                  </div>
+                  <div className="calc-element-amount">
+                    <span>建议用量</span>
+                    <strong>{calcResult.nAmount} <em>g</em></strong>
+                  </div>
+                  <div className="calc-element-bar"><i style={{ width: calcResult.npk.sum > 0 ? `${(calcResult.npk.n / calcResult.npk.sum) * 100}%` : '0%' }} /></div>
+                </div>
+                <div className="calc-element calc-element-p">
+                  <div className="calc-element-head">
+                    <strong>P 磷</strong>
+                    <span className="calc-element-ratio">{calcResult.npk.p} 份</span>
+                  </div>
+                  <div className="calc-element-amount">
+                    <span>建议用量</span>
+                    <strong>{calcResult.pAmount} <em>g</em></strong>
+                  </div>
+                  <div className="calc-element-bar"><i style={{ width: calcResult.npk.sum > 0 ? `${(calcResult.npk.p / calcResult.npk.sum) * 100}%` : '0%' }} /></div>
+                </div>
+                <div className="calc-element calc-element-k">
+                  <div className="calc-element-head">
+                    <strong>K 钾</strong>
+                    <span className="calc-element-ratio">{calcResult.npk.k} 份</span>
+                  </div>
+                  <div className="calc-element-amount">
+                    <span>建议用量</span>
+                    <strong>{calcResult.kAmount} <em>g</em></strong>
+                  </div>
+                  <div className="calc-element-bar"><i style={{ width: calcResult.npk.sum > 0 ? `${(calcResult.npk.k / calcResult.npk.sum) * 100}%` : '0%' }} /></div>
+                </div>
+              </div>
+
+              <div className="calc-divider"><span>操作步骤</span></div>
+
+              <div className="calc-steps">
+                <div className="calc-step">
+                  <span className="calc-step-index">1</span>
+                  <div>
+                    <strong>取母液</strong>
+                    <p>量取浓缩母液 <em>{calcResult.stockVolumeMl} mL</em>（按 {calcResult.multiplier}× 浓缩母液计）</p>
+                  </div>
+                </div>
+                <div className="calc-step">
+                  <span className="calc-step-index">2</span>
+                  <div>
+                    <strong>加清水</strong>
+                    <p>注入清水约 <em>{calcResult.cleanWater} L</em>，搅拌均匀</p>
+                  </div>
+                </div>
+                <div className="calc-step">
+                  <span className="calc-step-index">3</span>
+                  <div>
+                    <strong>测 EC / pH</strong>
+                    <p>使用仪器检测实际 EC 和 pH，必要时微调补肥或补水</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="calc-note-section">
+                <label>
+                  <span className="calc-label-head"><FileText size={13} />备注区</span>
+                  <textarea value={calcNote} onChange={(e) => setCalcNote(e.target.value)} placeholder="记录本次混配的批次号、实际测得 EC、操作人员、特殊调整说明……" />
+                </label>
+              </div>
+
+              <div className="calc-foot">
+                <span className="calc-time">计算时间：{calcResult.calculatedAt}</span>
+                <span className="calc-tag">简化模型 · 仅供参考</span>
+              </div>
+            </div>
+          ) : (
+            <div className="calc-empty">
+              <Calculator size={40} />
+              <p>填写左侧参数后点击「开始计算」，即可得到本次混配的建议用量与操作步骤。</p>
+              <p className="calc-empty-subtip">如果已在右侧列表选中某个配方，可以直接点击「带入当前配方」快速填入 NPK 和 EC。</p>
+            </div>
+          )}
+        </div>
       </section>
 
       <section className="adj-records-section">

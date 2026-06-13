@@ -241,7 +241,34 @@ const recipeTemplates = [
   }
 ];
 
+const cropStageRanges = {
+  '番茄||育苗期': { ecMin: 0.8, ecMax: 1.6, phMin: 5.5, phMax: 6.2 },
+  '番茄||营养生长期': { ecMin: 1.4, ecMax: 2.2, phMin: 5.5, phMax: 6.2 },
+  '番茄||开花期': { ecMin: 1.8, ecMax: 2.6, phMin: 5.5, phMax: 6.2 },
+  '番茄||结果期': { ecMin: 2.0, ecMax: 3.0, phMin: 5.4, phMax: 6.1 },
+  '生菜||育苗期': { ecMin: 0.5, ecMax: 1.2, phMin: 5.7, phMax: 6.3 },
+  '生菜||营养生长期': { ecMin: 1.0, ecMax: 1.8, phMin: 5.7, phMax: 6.3 },
+  '生菜||开花期': { ecMin: 1.1, ecMax: 1.9, phMin: 5.7, phMax: 6.3 },
+  '生菜||结球期': { ecMin: 1.2, ecMax: 2.0, phMin: 5.6, phMax: 6.2 },
+  '草莓||育苗期': { ecMin: 0.6, ecMax: 1.4, phMin: 5.5, phMax: 6.2 },
+  '草莓||营养生长期': { ecMin: 1.0, ecMax: 1.8, phMin: 5.4, phMax: 6.1 },
+  '草莓||开花期': { ecMin: 1.2, ecMax: 2.0, phMin: 5.4, phMax: 6.1 },
+  '草莓||结果期': { ecMin: 1.4, ecMax: 2.2, phMin: 5.4, phMax: 6.1 },
+  '黄瓜||育苗期': { ecMin: 0.6, ecMax: 1.4, phMin: 5.5, phMax: 6.2 },
+  '黄瓜||营养生长期': { ecMin: 1.4, ecMax: 2.2, phMin: 5.5, phMax: 6.2 },
+  '黄瓜||开花期': { ecMin: 1.8, ecMax: 2.6, phMin: 5.4, phMax: 6.1 },
+  '黄瓜||结果期': { ecMin: 1.9, ecMax: 2.9, phMin: 5.4, phMax: 6.1 },
+  '辣椒||育苗期': { ecMin: 0.6, ecMax: 1.4, phMin: 5.6, phMax: 6.2 },
+  '辣椒||营养生长期': { ecMin: 1.2, ecMax: 2.0, phMin: 5.6, phMax: 6.2 },
+  '辣椒||开花期': { ecMin: 1.6, ecMax: 2.4, phMin: 5.5, phMax: 6.1 },
+  '辣椒||结果期': { ecMin: 1.8, ecMax: 2.8, phMin: 5.5, phMax: 6.1 },
+  '西瓜||育苗期': { ecMin: 0.6, ecMax: 1.4, phMin: 5.7, phMax: 6.3 },
+  '西瓜||营养生长期': { ecMin: 1.4, ecMax: 2.2, phMin: 5.7, phMax: 6.3 },
+  '西瓜||开花期': { ecMin: 1.6, ecMax: 2.4, phMin: 5.6, phMax: 6.2 },
+  '西瓜||结果期': { ecMin: 1.9, ecMax: 2.9, phMin: 5.6, phMax: 6.2 },
+};
+
 const cropOptions = [...new Set(recipeTemplates.map((t) => t.crop))];
 
-export { recipeTemplates, cropOptions };
+export { recipeTemplates, cropOptions, cropStageRanges };
 export default recipeTemplates;

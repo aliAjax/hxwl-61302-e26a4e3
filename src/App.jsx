@@ -1,7 +1,7 @@
 import { Fragment, useMemo, useState } from 'react';
-import { Sprout, Plus, Search, Trash2, RotateCcw, CheckCircle2, AlertTriangle, ClipboardList, CalendarDays, BookOpen, ChevronDown, ChevronUp, ArrowRight, FileText, Calculator, Droplets, Beaker, Scale, Info, RefreshCw, GitCompareArrows, Grid3X3, Flower2, X, Layers, Archive } from 'lucide-react';
+import { Sprout, Plus, Search, Trash2, RotateCcw, CheckCircle2, AlertTriangle, ClipboardList, CalendarDays, BookOpen, ChevronDown, ChevronUp, ArrowRight, FileText, Calculator, Droplets, Beaker, Scale, Info, RefreshCw, GitCompareArrows, Grid3X3, Flower2, X, Layers, Archive, ShieldAlert, TrendingDown, TrendingUp, Copy } from 'lucide-react';
 import './App.css';
-import { recipeTemplates, cropOptions } from './recipeTemplates';
+import { recipeTemplates, cropOptions, cropStageRanges } from './recipeTemplates';
 
 const appConfig = {
   "id": "hxwl-61302",
@@ -265,6 +265,7 @@ function App() {
   const [cmpRight, setCmpRight] = useState('');
 
   const [boardFilter, setBoardFilter] = useState({ crop: null, stage: null });
+  const [warningFilter, setWarningFilter] = useState({ crop: '全部', severity: '全部' });
 
   const boardStages = ['育苗期', '营养生长期', '开花期', '结果期'];
 
@@ -289,6 +290,45 @@ function App() {
     });
     return result;
   }, [records]);
+
+  const warningList = useMemo(() => {
+    const warnings = [];
+    records.forEach((item) => {
+      const key = `${item.crop}||${item.stage}`;
+      const range = cropStageRanges[key];
+      if (!range) return;
+      const ec = Number(item.ec);
+      const ph = Number(item.ph);
+      const issues = [];
+      if (Number.isFinite(ec) && ec > range.ecMax) {
+        issues.push({ field: 'EC', value: ec, limit: range.ecMax, direction: 'high', suggestion: `EC 偏高（当前 ${ec}，推荐上限 ${range.ecMax}），建议降低 EC 浓度，防止烧苗或盐害` });
+      }
+      if (Number.isFinite(ec) && ec < range.ecMin) {
+        issues.push({ field: 'EC', value: ec, limit: range.ecMin, direction: 'low', suggestion: `EC 偏低（当前 ${ec}，推荐下限 ${range.ecMin}），建议提高 EC 浓度，确保营养供应充足` });
+      }
+      if (Number.isFinite(ph) && ph > range.phMax) {
+        issues.push({ field: 'pH', value: ph, limit: range.phMax, direction: 'high', suggestion: `pH 偏高（当前 ${ph}，推荐上限 ${range.phMax}），建议降低 pH，防止微量元素沉淀吸收障碍` });
+      }
+      if (Number.isFinite(ph) && ph < range.phMin) {
+        issues.push({ field: 'pH', value: ph, limit: range.phMin, direction: 'low', suggestion: `pH 偏低（当前 ${ph}，推荐下限 ${range.phMin}），建议提高 pH，防止酸害和根系受损` });
+      }
+      if (issues.length > 0) {
+        warnings.push({ record: item, issues, range, severity: issues.some((i) => i.direction === 'high' && i.field === 'EC') ? 'high' : 'medium' });
+      }
+    });
+    return warnings.sort((a, b) => {
+      const rank = { high: 0, medium: 1, low: 2 };
+      return (rank[a.severity] ?? 9) - (rank[b.severity] ?? 9);
+    });
+  }, [records]);
+
+  const filteredWarnings = useMemo(() => {
+    return warningList
+      .filter((w) => warningFilter.crop === '全部' || w.record.crop === warningFilter.crop)
+      .filter((w) => warningFilter.severity === '全部' || w.severity === warningFilter.severity);
+  }, [warningList, warningFilter]);
+
+  const warningCropOptions = useMemo(() => [...new Set(records.map((r) => r.crop))], [records]);
 
   function handleBoardCellClick(crop, stage) {
     const cell = boardData[crop]?.[stage];
@@ -573,6 +613,7 @@ function App() {
     { label: "作物数", value: new Set(records.map((item) => item.crop)).size },
     { label: "使用中", value: records.filter((item) => item.status === '使用中').length },
     { label: "平均EC", value: avg(records.map((item) => Number(item.ec))).toFixed(1) },
+    { label: "异常预警", value: warningList.length },
   ];
 
   const groupedByDate = useMemo(() => {
@@ -605,9 +646,9 @@ function App() {
         </div>
       </section>
 
-      <section className="metrics">
+      <section className="metrics metrics-4">
         {metrics.map((metric) => (
-          <article className="metric" key={metric.label}>
+          <article className={'metric ' + (metric.label === '异常预警' && metric.value > 0 ? 'metric-warning' : '')} key={metric.label}>
             <span>{metric.label}</span>
             <strong>{metric.value}</strong>
           </article>
@@ -711,6 +752,94 @@ function App() {
               </Fragment>
             ))}
           </div>
+        </div>
+      </section>
+
+      <section className="warning-section">
+        <div className="panel warning-panel">
+          <div className="panel-title">
+            <ShieldAlert size={18} />
+            <h2>EC/pH 异常预警中心</h2>
+            {warningList.length > 0 && (
+              <span className="warning-badge">{warningList.length} 项异常</span>
+            )}
+          </div>
+          <div className="warning-toolbar">
+            <label>
+              <span>作物</span>
+              <select value={warningFilter.crop} onChange={(e) => setWarningFilter({ ...warningFilter, crop: e.target.value })}>
+                <option>全部</option>
+                {warningCropOptions.map((c) => <option key={c}>{c}</option>)}
+              </select>
+            </label>
+            <label>
+              <span>严重程度</span>
+              <select value={warningFilter.severity} onChange={(e) => setWarningFilter({ ...warningFilter, severity: e.target.value })}>
+                <option>全部</option>
+                <option value="high">高危</option>
+                <option value="medium">中等</option>
+              </select>
+            </label>
+            <span className="warning-filter-count">筛选后 {filteredWarnings.length} 项</span>
+          </div>
+
+          {filteredWarnings.length > 0 ? (
+            <div className="warning-list">
+              {filteredWarnings.map((w) => (
+                <article className={'warning-card warning-card-' + w.severity} key={w.record.id}>
+                  <div className="warning-card-head">
+                    <div className="warning-card-title">
+                      <span className={'warning-severity warning-severity-' + w.severity}>
+                        {w.severity === 'high' ? '高危' : '中等'}
+                      </span>
+                      <strong>{w.record.crop}</strong>
+                      <span className="warning-stage">{w.record.stage}</span>
+                      <span className="warning-version">v{w.record.version || '?'}</span>
+                      <span className={'status ' + statusClass(w.record.status)}>{w.record.status}</span>
+                    </div>
+                    <div className="warning-card-values">
+                      <span className="warning-value warning-value-ec">
+                        EC <strong>{w.record.ec}</strong>
+                        <span className="warning-range">推荐 {w.range.ecMin}–{w.range.ecMax}</span>
+                      </span>
+                      <span className="warning-value warning-value-ph">
+                        pH <strong>{w.record.ph}</strong>
+                        <span className="warning-range">推荐 {w.range.phMin}–{w.range.phMax}</span>
+                      </span>
+                    </div>
+                  </div>
+                  <div className="warning-card-issues">
+                    {w.issues.map((issue, idx) => (
+                      <div className="warning-issue" key={idx}>
+                        <span className={'warning-issue-icon ' + (issue.direction === 'high' ? 'warning-issue-high' : 'warning-issue-low')}>
+                          {issue.direction === 'high' ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+                        </span>
+                        <div className="warning-issue-content">
+                          <strong>{issue.field} {issue.direction === 'high' ? '偏高' : '偏低'}</strong>
+                          <p>{issue.suggestion}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="warning-card-actions">
+                    <button type="button" className="warning-copy-btn" onClick={() => duplicateRecord(w.record)}>
+                      <Copy size={14} />
+                      <span>复制为试配版本</span>
+                    </button>
+                    <button type="button" className="warning-locate-btn" onClick={() => setSelected(w.record)}>
+                      <ArrowRight size={14} />
+                      <span>定位到配方</span>
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <div className="warning-empty">
+              <ShieldAlert size={36} />
+              <p>{warningList.length === 0 ? '当前所有配方 EC/pH 均在推荐范围内，暂无异常预警。' : '当前筛选条件下无异常配方。'}</p>
+            </div>
+          )}
         </div>
       </section>
 

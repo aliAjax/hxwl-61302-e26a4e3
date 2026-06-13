@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Sprout, Plus, Search, Trash2, RotateCcw, CheckCircle2, AlertTriangle, ClipboardList, CalendarDays, BookOpen, ChevronDown, ChevronUp, ArrowRight } from 'lucide-react';
+import { Sprout, Plus, Search, Trash2, RotateCcw, CheckCircle2, AlertTriangle, ClipboardList, CalendarDays, BookOpen, ChevronDown, ChevronUp, ArrowRight, FileText } from 'lucide-react';
 import './App.css';
 import { recipeTemplates, cropOptions } from './recipeTemplates';
 
@@ -162,6 +162,20 @@ function loadRecords() {
   return withIds(appConfig.seed);
 }
 
+const adjStorageKey = appConfig.storage + '-adj';
+
+function loadAdjRecords() {
+  const raw = localStorage.getItem(adjStorageKey);
+  if (raw) {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 function avg(numbers) {
   const valid = numbers.filter((value) => Number.isFinite(value));
   if (!valid.length) return 0;
@@ -211,6 +225,10 @@ function App() {
   const [selected, setSelected] = useState(null);
   const [templateOpen, setTemplateOpen] = useState(true);
   const [templateCrop, setTemplateCrop] = useState('全部');
+  const [adjRecords, setAdjRecords] = useState(loadAdjRecords);
+  const [adjForm, setAdjForm] = useState({ sourceId: '', reason: '', adjustments: '', observations: '' });
+  const [adjFilters, setAdjFilters] = useState({ crop: '全部', stage: '全部' });
+  const [adjFormVisible, setAdjFormVisible] = useState(false);
 
   function persist(next) {
     setRecords(next);
@@ -295,6 +313,46 @@ function App() {
     persist(next);
     setSelected(next.find((record) => record.id === item.id));
   }
+
+  function persistAdj(next) {
+    setAdjRecords(next);
+    localStorage.setItem(adjStorageKey, JSON.stringify(next));
+  }
+
+  function addAdjRecord(event) {
+    event.preventDefault();
+    if (!selected || !adjForm.sourceId) return;
+    const sourceRecipe = records.find((r) => r.id === adjForm.sourceId);
+    const newAdj = {
+      id: uid(),
+      recipeId: selected.id,
+      recipeName: `${selected.crop} · ${selected.stage}`,
+      sourceId: adjForm.sourceId,
+      sourceName: sourceRecipe ? `${sourceRecipe.crop} · ${sourceRecipe.stage}` : '',
+      crop: selected.crop,
+      stage: selected.stage,
+      reason: adjForm.reason,
+      adjustments: adjForm.adjustments,
+      observations: adjForm.observations,
+      createdAt: new Date().toISOString()
+    };
+    persistAdj([newAdj, ...adjRecords]);
+    setAdjForm({ sourceId: '', reason: '', adjustments: '', observations: '' });
+    setAdjFormVisible(false);
+  }
+
+  function removeAdjRecord(id) {
+    persistAdj(adjRecords.filter((r) => r.id !== id));
+  }
+
+  const filteredAdjRecords = useMemo(() => {
+    return adjRecords
+      .filter((r) => adjFilters.crop === '全部' || r.crop === adjFilters.crop)
+      .filter((r) => adjFilters.stage === '全部' || r.stage === adjFilters.stage);
+  }, [adjRecords, adjFilters]);
+
+  const adjCropOptions = useMemo(() => [...new Set(adjRecords.map((r) => r.crop))], [adjRecords]);
+  const adjStageOptions = useMemo(() => [...new Set(adjRecords.map((r) => r.stage))], [adjRecords]);
 
   const filteredRecords = useMemo(() => {
     return records
@@ -513,11 +571,95 @@ function App() {
                   <span key={index}>{step.at} · {step.status} · {step.by}</span>
                 ))}
               </div>
+              <div className="adj-section">
+                <button type="button" className="adj-toggle" onClick={() => { setAdjFormVisible(!adjFormVisible); setAdjForm({ sourceId: '', reason: '', adjustments: '', observations: '' }); }}>
+                  <FileText size={16} />
+                  <span>{adjFormVisible ? '取消填写调整记录' : '填写调整记录'}</span>
+                </button>
+                {adjFormVisible && (
+                  <form className="adj-form" onSubmit={addAdjRecord}>
+                    <label>
+                      <span>原配方</span>
+                      <select value={adjForm.sourceId} onChange={(e) => setAdjForm({ ...adjForm, sourceId: e.target.value })} required>
+                        <option value="">请选择原配方</option>
+                        {records.filter((r) => r.id !== selected.id).map((r) => (
+                          <option key={r.id} value={r.id}>{r.crop} · {r.stage}（EC {r.ec} / pH {r.ph}）</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      <span>调整原因</span>
+                      <input type="text" value={adjForm.reason} onChange={(e) => setAdjForm({ ...adjForm, reason: e.target.value })} placeholder="如：高温期EC偏高烧苗" required />
+                    </label>
+                    <label className="wide">
+                      <span>调整项</span>
+                      <textarea value={adjForm.adjustments} onChange={(e) => setAdjForm({ ...adjForm, adjustments: e.target.value })} placeholder="如：EC 2.2→1.8，NPK 15-5-30→12-8-24" required />
+                    </label>
+                    <label className="wide">
+                      <span>观察结果</span>
+                      <textarea value={adjForm.observations} onChange={(e) => setAdjForm({ ...adjForm, observations: e.target.value })} placeholder="如：调整后3天新叶无烧尖，生长正常" />
+                    </label>
+                    <button className="primary" type="submit"><Plus size={16} />生成调整记录</button>
+                  </form>
+                )}
+              </div>
             </div>
           ) : (
             <p className="empty">点击任意记录查看详情和状态流转。</p>
           )}
         </aside>
+      </section>
+
+      <section className="adj-records-section">
+        <div className="panel">
+          <div className="panel-title">
+            <FileText size={18} />
+            <h2>配方调整记录</h2>
+            <span className="adj-count">共 {filteredAdjRecords.length} 条</span>
+          </div>
+          <div className="adj-toolbar">
+            <label>
+              <span>作物</span>
+              <select value={adjFilters.crop} onChange={(e) => setAdjFilters({ ...adjFilters, crop: e.target.value })}>
+                <option>全部</option>
+                {adjCropOptions.map((c) => <option key={c}>{c}</option>)}
+              </select>
+            </label>
+            <label>
+              <span>生长期</span>
+              <select value={adjFilters.stage} onChange={(e) => setAdjFilters({ ...adjFilters, stage: e.target.value })}>
+                <option>全部</option>
+                {adjStageOptions.map((s) => <option key={s}>{s}</option>)}
+              </select>
+            </label>
+          </div>
+          {filteredAdjRecords.length > 0 ? (
+            <div className="adj-list">
+              {filteredAdjRecords.map((r) => (
+                <article className="adj-card" key={r.id}>
+                  <div className="adj-card-head">
+                    <div>
+                      <strong>{r.recipeName}</strong>
+                      <span className="adj-source">源：{r.sourceName}</span>
+                    </div>
+                    <button className="ghost-danger" type="button" onClick={() => removeAdjRecord(r.id)}><Trash2 size={14} /></button>
+                  </div>
+                  <div className="adj-card-body">
+                    <div className="adj-field"><span className="adj-label">调整原因</span><p>{r.reason}</p></div>
+                    <div className="adj-field"><span className="adj-label">调整项</span><p>{r.adjustments}</p></div>
+                    {r.observations && <div className="adj-field"><span className="adj-label">观察结果</span><p>{r.observations}</p></div>}
+                  </div>
+                  <div className="adj-card-foot">
+                    <span className="adj-crop-stage">{r.crop} · {r.stage}</span>
+                    <span className="adj-date">{r.createdAt?.slice(0, 10)}</span>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <p className="empty">暂无调整记录。在详情面板中选择配方后可填写调整记录。</p>
+          )}
+        </div>
       </section>
     </main>
   );

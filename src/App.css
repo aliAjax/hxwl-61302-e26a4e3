@@ -376,4 +376,147 @@ textarea { min-height: 76px; resize: vertical; }
   .record-head { display: grid; }
   .template-toolbar { flex-direction: column; align-items: stretch; }
   .template-toolbar select { width: 100%; }
+  .adj-toolbar { flex-direction: column; }
+}
+
+.adj-section {
+  margin-top: 14px;
+  border-top: 1px solid #e5e7eb;
+  padding-top: 14px;
+}
+
+.adj-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px;
+  border: 1px dashed var(--accent);
+  border-radius: 6px;
+  background: #f0fdf4;
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 14px;
+}
+.adj-toggle:hover { background: #dcfce7; }
+
+.adj-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 12px;
+}
+.adj-form label.wide { grid-column: 1 / -1; }
+.adj-form .primary {
+  grid-column: 1 / -1;
+  margin-top: 4px;
+}
+
+.adj-records-section {
+  margin-top: 18px;
+}
+
+.adj-count {
+  margin-left: auto;
+  color: #667085;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.adj-toolbar {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.adj-toolbar label {
+  flex: 1;
+}
+.adj-toolbar select {
+  width: 100%;
+}
+
+.adj-list {
+  display: grid;
+  gap: 12px;
+  max-height: 600px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.adj-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 14px;
+  background: #ffffff;
+  transition: border-color .16s, box-shadow .16s;
+}
+.adj-card:hover {
+  border-color: var(--accent);
+  box-shadow: 0 8px 28px rgba(15, 23, 42, .08);
+}
+
+.adj-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+.adj-card-head strong {
+  font-size: 15px;
+  color: #111827;
+}
+.adj-source {
+  display: block;
+  margin-top: 2px;
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.adj-card-body {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.adj-field p {
+  color: #344054;
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.adj-label {
+  display: inline-block;
+  background: #f0fdf4;
+  color: var(--accent);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.adj-card-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #f1f5f9;
+}
+
+.adj-crop-stage {
+  background: #f1f5f9;
+  color: #475467;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.adj-date {
+  color: #9ca3af;
+  font-size: 12px;
 }

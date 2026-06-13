@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Sprout, Plus, Search, Trash2, RotateCcw, CheckCircle2, AlertTriangle, ClipboardList, CalendarDays, BookOpen, ChevronDown, ChevronUp, ArrowRight, FileText, Calculator, Droplets, Beaker, Scale, Info, RefreshCw } from 'lucide-react';
+import { Sprout, Plus, Search, Trash2, RotateCcw, CheckCircle2, AlertTriangle, ClipboardList, CalendarDays, BookOpen, ChevronDown, ChevronUp, ArrowRight, FileText, Calculator, Droplets, Beaker, Scale, Info, RefreshCw, GitCompareArrows } from 'lucide-react';
 import './App.css';
 import { recipeTemplates, cropOptions } from './recipeTemplates';
 
@@ -146,15 +146,35 @@ function uid() {
   return Math.random().toString(36).slice(2, 10);
 }
 
+function ensureVersions(items) {
+  const groups = {};
+  items.forEach((item) => {
+    const key = `${item.crop}||${item.stage}`;
+    (groups[key] ||= []).push(item);
+  });
+  Object.values(groups).forEach((group) => {
+    const used = new Set(group.filter((g) => g.version).map((g) => g.version));
+    let next = 1;
+    group.forEach((item) => {
+      if (item.version) return;
+      while (used.has(next)) next++;
+      item.version = next;
+      used.add(next);
+      next++;
+    });
+  });
+  return items;
+}
+
 function withIds(items) {
-  return items.map((item) => ({ id: uid(), timeline: item.timeline || [{ status: item.status, at: today, by: '系统' }], ...item }));
+  return ensureVersions(items.map((item) => ({ id: uid(), timeline: item.timeline || [{ status: item.status, at: today, by: '系统' }], ...item })));
 }
 
 function loadRecords() {
   const raw = localStorage.getItem(appConfig.storage);
   if (raw) {
     try {
-      return JSON.parse(raw);
+      return ensureVersions(JSON.parse(raw));
     } catch {
       return withIds(appConfig.seed);
     }
@@ -239,6 +259,11 @@ function App() {
   const [calcResult, setCalcResult] = useState(null);
   const [calcNote, setCalcNote] = useState('');
 
+  const [cmpCrop, setCmpCrop] = useState('全部');
+  const [cmpStage, setCmpStage] = useState('全部');
+  const [cmpLeft, setCmpLeft] = useState('');
+  const [cmpRight, setCmpRight] = useState('');
+
   function persist(next) {
     setRecords(next);
     localStorage.setItem(appConfig.storage, JSON.stringify(next));
@@ -263,9 +288,12 @@ function App() {
 
   function addRecord(event) {
     event.preventDefault();
+    const sameGroup = records.filter((r) => r.crop === form.crop && r.stage === form.stage);
+    const nextVer = sameGroup.length > 0 ? Math.max(...sameGroup.map((r) => r.version || 0)) + 1 : 1;
     const nextRecord = {
       id: uid(),
       ...form,
+      version: nextVer,
       status: form.status || appConfig.primaryStatus,
       createdAt: new Date().toISOString(),
       timeline: [{ status: form.status || appConfig.primaryStatus, at: today, by: '录入' }]
@@ -305,7 +333,9 @@ function App() {
   }
 
   function duplicateRecord(item) {
-    const copied = { ...item, id: uid(), status: appConfig.primaryStatus, timeline: [{ status: appConfig.primaryStatus, at: today, by: '复制' }] };
+    const sameGroup = records.filter((r) => r.crop === item.crop && r.stage === item.stage);
+    const nextVer = sameGroup.length > 0 ? Math.max(...sameGroup.map((r) => r.version || 0)) + 1 : 1;
+    const copied = { ...item, id: uid(), version: nextVer, status: appConfig.primaryStatus, timeline: [{ status: appConfig.primaryStatus, at: today, by: '复制' }] };
     persist([copied, ...records]);
     setSelected(copied);
   }
@@ -416,6 +446,21 @@ function App() {
 
   const adjCropOptions = useMemo(() => [...new Set(adjRecords.map((r) => r.crop))], [adjRecords]);
   const adjStageOptions = useMemo(() => [...new Set(adjRecords.map((r) => r.stage))], [adjRecords]);
+
+  const cmpCropOptions = useMemo(() => [...new Set(records.map((r) => r.crop))], [records]);
+  const cmpStageOptions = useMemo(() => {
+    if (cmpCrop === '全部') return [...new Set(records.map((r) => r.stage))];
+    return [...new Set(records.filter((r) => r.crop === cmpCrop).map((r) => r.stage))];
+  }, [records, cmpCrop]);
+  const cmpCandidates = useMemo(() => {
+    return records.filter((r) => {
+      if (cmpCrop !== '全部' && r.crop !== cmpCrop) return false;
+      if (cmpStage !== '全部' && r.stage !== cmpStage) return false;
+      return true;
+    }).sort((a, b) => (a.version || 0) - (b.version || 0));
+  }, [records, cmpCrop, cmpStage]);
+  const cmpLeftRecord = useMemo(() => records.find((r) => r.id === cmpLeft), [records, cmpLeft]);
+  const cmpRightRecord = useMemo(() => records.find((r) => r.id === cmpRight), [records, cmpRight]);
 
   const filteredRecords = useMemo(() => {
     return records
@@ -566,7 +611,7 @@ function App() {
               <article className={'record ' + (item.conflict || hasOverlap(item, records) ? 'conflict' : '')} key={item.id} onClick={() => setSelected(item)}>
                 <div className="record-head">
                   <div>
-                    <h3>{item.crop}</h3>
+                    <h3>{item.crop}<span className="version-tag">v{item.version || '?'}</span></h3>
                     <p>{`${item.stage} · EC ${item.ec} · pH ${item.ph}`}</p>
                   </div>
                   <span className={'status ' + statusClass(item.status)}>{item.status}</span>
@@ -893,6 +938,126 @@ function App() {
             </div>
           ) : (
             <p className="empty">暂无调整记录。在详情面板中选择配方后可填写调整记录。</p>
+          )}
+        </div>
+      </section>
+
+      <section className="cmp-section">
+        <div className="panel">
+          <div className="panel-title">
+            <GitCompareArrows size={18} />
+            <h2>配方版本对比</h2>
+          </div>
+          <div className="cmp-toolbar">
+            <label>
+              <span>作物</span>
+              <select value={cmpCrop} onChange={(e) => { setCmpCrop(e.target.value); setCmpStage('全部'); setCmpLeft(''); setCmpRight(''); }}>
+                <option>全部</option>
+                {cmpCropOptions.map((c) => <option key={c}>{c}</option>)}
+              </select>
+            </label>
+            <label>
+              <span>生长期</span>
+              <select value={cmpStage} onChange={(e) => { setCmpStage(e.target.value); setCmpLeft(''); setCmpRight(''); }}>
+                <option>全部</option>
+                {cmpStageOptions.map((s) => <option key={s}>{s}</option>)}
+              </select>
+            </label>
+            <span className="cmp-count">共 {cmpCandidates.length} 个版本可选</span>
+          </div>
+
+          {cmpCandidates.length >= 2 ? (
+            <div className="cmp-selectors">
+              <label>
+                <span>版本 A</span>
+                <select value={cmpLeft} onChange={(e) => setCmpLeft(e.target.value)}>
+                  <option value="">选择配方版本</option>
+                  {cmpCandidates.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      v{r.version || '?'} — {r.crop} · {r.stage}（EC {r.ec} / pH {r.ph}）{r.status}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <span className="cmp-vs">VS</span>
+              <label>
+                <span>版本 B</span>
+                <select value={cmpRight} onChange={(e) => setCmpRight(e.target.value)}>
+                  <option value="">选择配方版本</option>
+                  {cmpCandidates.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      v{r.version || '?'} — {r.crop} · {r.stage}（EC {r.ec} / pH {r.ph}）{r.status}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          ) : (
+            <p className="cmp-hint">请先选择同一作物与生长期，至少需要 2 个版本才能进行对比。</p>
+          )}
+
+          {cmpLeftRecord && cmpRightRecord && (
+            <div className="cmp-result">
+              <table className="cmp-table">
+                <thead>
+                  <tr>
+                    <th>对比项</th>
+                    <th>版本 A（v{cmpLeftRecord.version || '?'}）</th>
+                    <th>版本 B（v{cmpRightRecord.version || '?'}）</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(() => {
+                    const fields = [
+                      { label: 'EC', left: cmpLeftRecord.ec, right: cmpRightRecord.ec },
+                      { label: 'pH', left: cmpLeftRecord.ph, right: cmpRightRecord.ph },
+                      { label: '氮磷钾比例', left: cmpLeftRecord.npk, right: cmpRightRecord.npk },
+                      { label: '备注', left: cmpLeftRecord.memo, right: cmpRightRecord.memo },
+                      { label: '当前状态', left: cmpLeftRecord.status, right: cmpRightRecord.status },
+                    ];
+                    return fields.map((f) => {
+                      const diff = String(f.left || '') !== String(f.right || '');
+                      return (
+                        <tr key={f.label} className={diff ? 'cmp-diff' : ''}>
+                          <td className="cmp-field-label">{f.label}</td>
+                          <td>{f.left || '—'}{diff && <span className="cmp-badge">差异</span>}</td>
+                          <td>{f.right || '—'}{diff && <span className="cmp-badge">差异</span>}</td>
+                        </tr>
+                      );
+                    });
+                  })()}
+                </tbody>
+              </table>
+
+              <div className="cmp-divider"><span>状态时间线对比</span></div>
+
+              <div className="cmp-timeline-pair">
+                <div className="cmp-timeline-col">
+                  <strong>v{cmpLeftRecord.version || '?'} 时间线</strong>
+                  {(cmpLeftRecord.timeline || []).length > 0 ? (
+                    <div className="cmp-timeline-list">
+                      {(cmpLeftRecord.timeline || []).map((step, i) => (
+                        <span key={i} className="cmp-timeline-step">{step.at} · {step.status} · {step.by}</span>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="cmp-timeline-empty">无时间线记录</span>
+                  )}
+                </div>
+                <div className="cmp-timeline-col">
+                  <strong>v{cmpRightRecord.version || '?'} 时间线</strong>
+                  {(cmpRightRecord.timeline || []).length > 0 ? (
+                    <div className="cmp-timeline-list">
+                      {(cmpRightRecord.timeline || []).map((step, i) => (
+                        <span key={i} className="cmp-timeline-step">{step.at} · {step.status} · {step.by}</span>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="cmp-timeline-empty">无时间线记录</span>
+                  )}
+                </div>
+              </div>
+            </div>
           )}
         </div>
       </section>

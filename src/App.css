@@ -1120,6 +1120,7 @@ textarea { min-height: 76px; resize: vertical; }
 
 .board-panel {
   padding: 18px;
+  overflow-x: auto;
 }
 
 .board-tip {
@@ -1300,6 +1301,11 @@ textarea { min-height: 76px; resize: vertical; }
   margin-top: auto;
 }
 
+.board-cell-stats-empty {
+  justify-content: center;
+  margin-top: 2px;
+}
+
 .board-stat {
   display: inline-flex;
   align-items: center;
@@ -1404,12 +1410,8 @@ textarea { min-height: 76px; resize: vertical; }
 
 @media (max-width: 620px) {
   .board-grid {
-    grid-template-columns: 70px repeat(2, minmax(0, 1fr));
-  }
-  .board-stage-head:nth-child(5),
-  .board-crop-head ~ .board-cell:nth-child(4n),
-  .board-crop-head ~ .board-cell:nth-child(4n-1) {
-    /* fallback for 2-col layout */
+    min-width: 760px;
+    grid-template-columns: 70px repeat(4, minmax(160px, 1fr));
   }
   .board-panel .panel-title {
     flex-wrap: wrap;

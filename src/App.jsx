@@ -659,6 +659,16 @@ function App() {
                           <Plus size={20} />
                         </div>
                         <span className="board-cell-empty-text">暂无配方</span>
+                        <div className="board-cell-stats board-cell-stats-empty">
+                          <span className="board-stat board-stat-trial">
+                            <Layers size={11} />
+                            试配 0
+                          </span>
+                          <span className="board-stat board-stat-archived">
+                            <Archive size={11} />
+                            归档 0
+                          </span>
+                        </div>
                         <span className="board-cell-empty-action">点击快速新建</span>
                       </button>
                     );
@@ -685,18 +695,14 @@ function App() {
                         </div>
                       )}
                       <div className="board-cell-stats">
-                        {cell.trialCount > 0 && (
-                          <span className="board-stat board-stat-trial">
-                            <Layers size={11} />
-                            试配 {cell.trialCount}
-                          </span>
-                        )}
-                        {cell.archivedCount > 0 && (
-                          <span className="board-stat board-stat-archived">
-                            <Archive size={11} />
-                            归档 {cell.archivedCount}
-                          </span>
-                        )}
+                        <span className="board-stat board-stat-trial">
+                          <Layers size={11} />
+                          试配 {cell.trialCount}
+                        </span>
+                        <span className="board-stat board-stat-archived">
+                          <Archive size={11} />
+                          归档 {cell.archivedCount}
+                        </span>
                       </div>
                       {cell.inUse?.version && <span className="board-cell-version">v{cell.inUse.version}</span>}
                     </button>

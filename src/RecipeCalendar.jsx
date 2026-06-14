@@ -1,5 +1,6 @@
 import { useState, useMemo, Fragment } from 'react';
-import { CalendarDays, ChevronLeft, ChevronRight, X, Sprout, Clock, Calendar, Archive } from 'lucide-react';
+import { CalendarDays, ChevronLeft, ChevronRight, X, Sprout, Clock, Calendar, Archive, Filter } from 'lucide-react';
+import { getAllCropOptions } from './recipeTemplates';
 
 function statusClass(status) {
   const statuses = ['试配', '使用中', '已归档'];
@@ -35,8 +36,24 @@ function RecipeCalendar({ records, onSelectRecipe, onOpenSchedule, selectedRecor
   const [viewMonth, setViewMonth] = useState(today.getMonth());
   const [selectedDate, setSelectedDate] = useState(null);
   const [dayDetailOpen, setDayDetailOpen] = useState(false);
+  const [cropFilter, setCropFilter] = useState('全部');
+  const [statusFilter, setStatusFilter] = useState('全部');
 
   const todayStr = today.toISOString().slice(0, 10);
+
+  const calendarCropOptions = useMemo(() => {
+    const recordCrops = records.map((r) => r.crop);
+    const allCrops = getAllCropOptions();
+    return [...new Set([...allCrops, ...recordCrops])];
+  }, [records]);
+  const calendarStatusOptions = ['试配', '使用中', '已归档'];
+
+  const hasCalendarFilter = cropFilter !== '全部' || statusFilter !== '全部';
+
+  function clearCalendarFilter() {
+    setCropFilter('全部');
+    setStatusFilter('全部');
+  }
 
   const monthName = useMemo(() => {
     const date = new Date(viewYear, viewMonth, 1);
@@ -78,12 +95,26 @@ function RecipeCalendar({ records, onSelectRecipe, onOpenSchedule, selectedRecor
   }, [viewYear, viewMonth]);
 
   const scheduledRecipes = useMemo(() => {
-    return records.filter(r => r.startDate && (r.status === '使用中' || r.status === '试配'));
-  }, [records]);
+    let result = records.filter(r => r.startDate);
+    if (statusFilter !== '全部') {
+      result = result.filter(r => r.status === statusFilter);
+    }
+    if (cropFilter !== '全部') {
+      result = result.filter(r => r.crop === cropFilter);
+    }
+    return result;
+  }, [records, cropFilter, statusFilter]);
 
   const unscheduledRecipes = useMemo(() => {
-    return records.filter(r => !r.startDate);
-  }, [records]);
+    let result = records.filter(r => !r.startDate);
+    if (statusFilter !== '全部') {
+      result = result.filter(r => r.status === statusFilter);
+    }
+    if (cropFilter !== '全部') {
+      result = result.filter(r => r.crop === cropFilter);
+    }
+    return result;
+  }, [records, cropFilter, statusFilter]);
 
   function getRecipesForDate(dateStr) {
     return scheduledRecipes.filter(r => isDateInRange(dateStr, r.startDate, r.endDate));
@@ -94,12 +125,13 @@ function RecipeCalendar({ records, onSelectRecipe, onOpenSchedule, selectedRecor
     const cropMap = {};
     recipes.forEach(r => {
       if (!cropMap[r.crop]) {
-        cropMap[r.crop] = { count: 0, hasInUse: false, hasTrial: false, recipes: [] };
+        cropMap[r.crop] = { count: 0, hasInUse: false, hasTrial: false, hasArchived: false, recipes: [] };
       }
       cropMap[r.crop].count++;
       cropMap[r.crop].recipes.push(r);
       if (r.status === '使用中') cropMap[r.crop].hasInUse = true;
       if (r.status === '试配') cropMap[r.crop].hasTrial = true;
+      if (r.status === '已归档') cropMap[r.crop].hasArchived = true;
     });
     return cropMap;
   }
@@ -142,7 +174,34 @@ function RecipeCalendar({ records, onSelectRecipe, onOpenSchedule, selectedRecor
         <div className="panel-title">
           <CalendarDays size={18} />
           <h2>配方使用日历</h2>
-          <span className="calendar-tip">点击日期查看当天配方，管理使用排期</span>
+          {hasCalendarFilter ? (
+            <button type="button" className="board-clear-filter" onClick={clearCalendarFilter}>
+              <X size={14} />
+              <span>清除筛选（{cropFilter} · {statusFilter}）</span>
+            </button>
+          ) : (
+            <span className="calendar-tip">点击日期查看当天配方，管理使用排期</span>
+          )}
+        </div>
+
+        <div className="calendar-toolbar">
+          <label>
+            <span><Filter size={12} /> 作物</span>
+            <select value={cropFilter} onChange={(e) => setCropFilter(e.target.value)}>
+              <option>全部</option>
+              {calendarCropOptions.map((c) => <option key={c}>{c}</option>)}
+            </select>
+          </label>
+          <label>
+            <span><Filter size={12} /> 状态</span>
+            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+              <option>全部</option>
+              {calendarStatusOptions.map((s) => <option key={s}>{s}</option>)}
+            </select>
+          </label>
+          <span className="warning-filter-count">
+            筛选后：月历 {scheduledRecipes.length} 条排期，未排期 {unscheduledRecipes.length} 条
+          </span>
         </div>
 
         <div className="calendar-header">
@@ -162,6 +221,9 @@ function RecipeCalendar({ records, onSelectRecipe, onOpenSchedule, selectedRecor
             </span>
             <span className="legend-item">
               <span className="legend-dot legend-trial"></span>试配
+            </span>
+            <span className="legend-item">
+              <span className="legend-dot legend-archived"></span>已归档
             </span>
           </div>
         </div>
@@ -196,7 +258,8 @@ function RecipeCalendar({ records, onSelectRecipe, onOpenSchedule, selectedRecor
                       className={
                         'calendar-crop-tag' +
                         (info.hasInUse ? ' calendar-crop-in-use' : '') +
-                        (info.hasTrial && !info.hasInUse ? ' calendar-crop-trial' : '')
+                        (info.hasTrial && !info.hasInUse ? ' calendar-crop-trial' : '') +
+                        (info.hasArchived && !info.hasInUse && !info.hasTrial ? ' calendar-crop-archived' : '')
                       }
                     >
                       <Sprout size={10} />

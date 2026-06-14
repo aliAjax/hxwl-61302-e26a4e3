@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState, useRef, useEffect } from 'react';
-import { Sprout, Plus, Search, Trash2, RotateCcw, CheckCircle2, AlertTriangle, ClipboardList, CalendarDays, BookOpen, ChevronDown, ChevronUp, ArrowRight, FileText, Calculator, Droplets, Beaker, Scale, Info, RefreshCw, GitCompareArrows, Grid3X3, Flower2, X, Layers, Archive, ShieldAlert, TrendingDown, TrendingUp, Copy, Download, Upload, Database, HardDriveUpload, HardDriveDownload, Calendar, FlaskConical, Leaf, Eye, CheckCircle, History, LeafyGreen, Bug, Activity, Building2, Settings, Pencil, ChevronRight } from 'lucide-react';
+import { Sprout, Plus, Search, Trash2, RotateCcw, CheckCircle2, AlertTriangle, ClipboardList, CalendarDays, BookOpen, ChevronDown, ChevronUp, ArrowRight, FileText, Calculator, Droplets, Beaker, Scale, Info, RefreshCw, GitCompareArrows, Grid3X3, Flower2, X, Layers, Archive, ShieldAlert, TrendingDown, TrendingUp, Copy, Download, Upload, Database, HardDriveUpload, HardDriveDownload, Calendar, FlaskConical, Leaf, Eye, CheckCircle, History, LeafyGreen, Bug, Activity, Building2, Settings, Pencil, ChevronRight, Save } from 'lucide-react';
 import './App.css';
 import { recipeTemplates, cropOptions, cropStageRanges, getAllTemplates, addCustomTemplate, deleteCustomTemplate, getAllCropOptions } from './recipeTemplates';
 import RecipeCalendar from './RecipeCalendar';
@@ -944,6 +944,72 @@ function App() {
     });
   }
 
+  function saveCalcAsAdjRecord() {
+    if (!selected) {
+      alert('请先在右侧列表中选择一个配方，将计算结果保存到该配方的调整记录中。');
+      return;
+    }
+    if (!calcResult) {
+      alert('请先完成营养液混配计算，然后再保存。');
+      return;
+    }
+
+    const adjustmentsParts = [];
+    adjustmentsParts.push(`水量：${calcResult.water} L`);
+    adjustmentsParts.push(`母液倍数：${calcResult.multiplier}×`);
+    adjustmentsParts.push(`目标 EC：${calcResult.ec} mS/cm`);
+    adjustmentsParts.push(`NPK 比例：${calcResult.npk.n}-${calcResult.npk.p}-${calcResult.npk.k}`);
+    adjustmentsParts.push(`总肥料估算：${calcResult.totalFertilizer} g`);
+    adjustmentsParts.push(`N 用量：${calcResult.nAmount} g`);
+    adjustmentsParts.push(`P 用量：${calcResult.pAmount} g`);
+    adjustmentsParts.push(`K 用量：${calcResult.kAmount} g`);
+    adjustmentsParts.push(`母液量：${calcResult.stockVolumeMl} mL`);
+    adjustmentsParts.push(`清水量：${calcResult.cleanWater} L`);
+
+    const observationsParts = [];
+    if (calcResult.warnings.length > 0) {
+      observationsParts.push('计算警告：');
+      calcResult.warnings.forEach((w, i) => {
+        observationsParts.push(`${i + 1}. ${w}`);
+      });
+    }
+    if (calcNote.trim()) {
+      if (observationsParts.length > 0) observationsParts.push('');
+      observationsParts.push(`备注：${calcNote.trim()}`);
+    }
+
+    const newAdj = {
+      id: uid(),
+      recipeId: selected.id,
+      recipeName: `${selected.crop} · ${selected.stage}`,
+      sourceId: selected.id,
+      sourceName: `${selected.crop} · ${selected.stage}（当前配方）`,
+      crop: selected.crop,
+      stage: selected.stage,
+      reason: '营养液混配计算',
+      adjustments: adjustmentsParts.join('\n'),
+      observations: observationsParts.join('\n'),
+      calcData: {
+        water: calcResult.water,
+        multiplier: calcResult.multiplier,
+        ec: calcResult.ec,
+        npk: calcResult.npk,
+        totalFertilizer: calcResult.totalFertilizer,
+        nAmount: calcResult.nAmount,
+        pAmount: calcResult.pAmount,
+        kAmount: calcResult.kAmount,
+        stockVolumeMl: calcResult.stockVolumeMl,
+        cleanWater: calcResult.cleanWater,
+        warnings: calcResult.warnings,
+        calculatedAt: calcResult.calculatedAt,
+        note: calcNote.trim() || undefined
+      },
+      createdAt: new Date().toISOString()
+    };
+    persistAdj([newAdj, ...adjRecords]);
+    alert(`已将本次营养液混配计算结果保存为「${selected.crop} · ${selected.stage}」的调整记录。`);
+  }
+
   const filteredAdjRecords = useMemo(() => {
     return adjRecords
       .filter((r) => adjFilters.crop === '全部' || r.crop === adjFilters.crop)
@@ -1850,6 +1916,26 @@ function App() {
                 </label>
               </div>
 
+              <div className="calc-save-section">
+                <button
+                  type="button"
+                  className="calc-save-btn"
+                  onClick={saveCalcAsAdjRecord}
+                  disabled={!selected}
+                  title={selected ? '将本次计算结果保存为当前配方的调整记录' : '请先在右侧列表中选择一个配方'}
+                >
+                  <Save size={16} />
+                  <span>保存为调整记录</span>
+                  {!selected && <em className="calc-save-hint">（请先选择配方）</em>}
+                </button>
+                {selected && (
+                  <span className="calc-save-target">
+                    将保存至：<strong>{selected.crop} · {selected.stage}</strong>
+                    <span className="version-tag">v{selected.version || '?'}</span>
+                  </span>
+                )}
+              </div>
+
               <div className="calc-foot">
                 <span className="calc-time">计算时间：{calcResult.calculatedAt}</span>
                 <span className="calc-tag">简化模型 · 仅供参考</span>
@@ -1890,29 +1976,115 @@ function App() {
           </div>
           {filteredAdjRecords.length > 0 ? (
             <div className="adj-list">
-              {filteredAdjRecords.map((r) => (
-                <article className="adj-card" key={r.id}>
-                  <div className="adj-card-head">
-                    <div>
-                      <strong>{r.recipeName}</strong>
-                      <span className="adj-source">源：{r.sourceName}</span>
+              {filteredAdjRecords.map((r) => {
+                const isCalcRecord = !!r.calcData;
+                return (
+                  <article className={'adj-card ' + (isCalcRecord ? 'adj-card-calc' : '')} key={r.id}>
+                    <div className="adj-card-head">
+                      <div>
+                        <strong>{r.recipeName}</strong>
+                        {isCalcRecord && (
+                          <span className="adj-type-tag adj-type-tag-calc">
+                            <Calculator size={12} />混配计算
+                          </span>
+                        )}
+                        <span className="adj-source">源：{r.sourceName}</span>
+                      </div>
+                      <button className="ghost-danger" type="button" onClick={() => removeAdjRecord(r.id)}><Trash2 size={14} /></button>
                     </div>
-                    <button className="ghost-danger" type="button" onClick={() => removeAdjRecord(r.id)}><Trash2 size={14} /></button>
-                  </div>
-                  <div className="adj-card-body">
-                    <div className="adj-field"><span className="adj-label">调整原因</span><p>{r.reason}</p></div>
-                    <div className="adj-field"><span className="adj-label">调整项</span><p>{r.adjustments}</p></div>
-                    {r.observations && <div className="adj-field"><span className="adj-label">观察结果</span><p>{r.observations}</p></div>}
-                  </div>
-                  <div className="adj-card-foot">
-                    <span className="adj-crop-stage">{r.crop} · {r.stage}</span>
-                    <span className="adj-date">{r.createdAt?.slice(0, 10)}</span>
-                  </div>
-                </article>
-              ))}
+                    <div className="adj-card-body">
+                      <div className="adj-field"><span className="adj-label">调整原因</span><p>{r.reason}</p></div>
+                      {isCalcRecord && r.calcData ? (
+                        <>
+                          <div className="adj-calc-summary">
+                            <div className="adj-calc-summary-item">
+                              <Droplets size={12} />
+                              <span>水量</span>
+                              <strong>{r.calcData.water} L</strong>
+                            </div>
+                            <div className="adj-calc-summary-item">
+                              <Beaker size={12} />
+                              <span>母液</span>
+                              <strong>{r.calcData.multiplier}×</strong>
+                            </div>
+                            <div className="adj-calc-summary-item">
+                              <Scale size={12} />
+                              <span>目标 EC</span>
+                              <strong>{r.calcData.ec} mS/cm</strong>
+                            </div>
+                            <div className="adj-calc-summary-item adj-calc-summary-highlight">
+                              <span>总肥量</span>
+                              <strong>{r.calcData.totalFertilizer} g</strong>
+                            </div>
+                          </div>
+                          <div className="adj-field">
+                            <span className="adj-label">NPK 元素用量拆分</span>
+                            <div className="adj-calc-elements">
+                              <div className="adj-calc-element adj-calc-element-n">
+                                <strong>N 氮</strong>
+                                <span>{r.calcData.npk?.n} 份 · {r.calcData.nAmount} g</span>
+                              </div>
+                              <div className="adj-calc-element adj-calc-element-p">
+                                <strong>P 磷</strong>
+                                <span>{r.calcData.npk?.p} 份 · {r.calcData.pAmount} g</span>
+                              </div>
+                              <div className="adj-calc-element adj-calc-element-k">
+                                <strong>K 钾</strong>
+                                <span>{r.calcData.npk?.k} 份 · {r.calcData.kAmount} g</span>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="adj-field">
+                            <span className="adj-label">操作步骤</span>
+                            <div className="adj-calc-steps">
+                              <div className="adj-calc-step">
+                                <span className="adj-calc-step-index">1</span>
+                                <p>量取浓缩母液 <em>{r.calcData.stockVolumeMl} mL</em></p>
+                              </div>
+                              <div className="adj-calc-step">
+                                <span className="adj-calc-step-index">2</span>
+                                <p>注入清水约 <em>{r.calcData.cleanWater} L</em>，搅拌均匀</p>
+                              </div>
+                              <div className="adj-calc-step">
+                                <span className="adj-calc-step-index">3</span>
+                                <p>检测实际 EC / pH，必要时微调</p>
+                              </div>
+                            </div>
+                          </div>
+                          {r.calcData.warnings && r.calcData.warnings.length > 0 && (
+                            <div className="adj-field">
+                              <span className="adj-label">计算警告</span>
+                              <div className="adj-calc-warnings">
+                                {r.calcData.warnings.map((w, i) => (
+                                  <div className="adj-calc-warning" key={i}><AlertTriangle size={12} />{w}</div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {r.calcData.note && (
+                            <div className="adj-field"><span className="adj-label">备注</span><p>{r.calcData.note}</p></div>
+                          )}
+                          {r.calcData.calculatedAt && (
+                            <div className="adj-calc-time">计算时间：{r.calcData.calculatedAt}</div>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          <div className="adj-field"><span className="adj-label">调整项</span><p>{r.adjustments}</p></div>
+                          {r.observations && <div className="adj-field"><span className="adj-label">观察结果</span><p>{r.observations}</p></div>}
+                        </>
+                      )}
+                    </div>
+                    <div className="adj-card-foot">
+                      <span className="adj-crop-stage">{r.crop} · {r.stage}</span>
+                      <span className="adj-date">{r.createdAt?.slice(0, 10)}</span>
+                    </div>
+                  </article>
+                );
+              })}
             </div>
           ) : (
-            <p className="empty">暂无调整记录。在详情面板中选择配方后可填写调整记录。</p>
+            <p className="empty">暂无调整记录。在详情面板中选择配方后可填写调整记录，或在混配计算器中保存计算结果。</p>
           )}
         </div>
       </section>

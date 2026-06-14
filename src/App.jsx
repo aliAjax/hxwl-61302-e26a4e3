@@ -1664,7 +1664,7 @@ function App() {
             <button
               type="button"
               className={'batch-toggle-btn ' + (batchOps.batchMode ? 'batch-toggle-active' : '')}
-              onClick={toggleBatchMode}
+              onClick={batchOps.toggleBatchMode}
             >
               {batchOps.batchMode ? <CheckSquare size={14} /> : <Square size={14} />}
               <span>{batchOps.batchMode ? '退出批量' : '批量操作'}</span>
@@ -3362,14 +3362,14 @@ function App() {
       )}
 
       {importExport.importModalOpen && (
-        <div className="import-modal-overlay" onClick={handleImportCancel}>
+        <div className="import-modal-overlay" onClick={importExport.handleImportCancel}>
           <div className="import-modal" onClick={(e) => e.stopPropagation()}>
             <div className="import-modal-header">
               <div className="import-modal-title">
                 <Database size={20} />
                 <h2>本地数据导入</h2>
               </div>
-              <button type="button" className="import-modal-close" onClick={handleImportCancel}>
+              <button type="button" className="import-modal-close" onClick={importExport.handleImportCancel}>
                 <X size={20} />
               </button>
             </div>
@@ -3383,7 +3383,7 @@ function App() {
                 className="import-file-input"
               />
 
-              {!importFileInfo && !importExport.importProcessing && !importExport.importError && (
+              {!importExport.importFileInfo && !importExport.importProcessing && !importExport.importError && (
                 <div className="import-drop-zone" onClick={() => importExport.importFileInputRef.current?.click()}>
                   <Upload size={48} />
                   <h3>点击选择 JSON 文件</h3>
@@ -3410,13 +3410,13 @@ function App() {
                 </div>
               )}
 
-              {importFileInfo && !importExport.importProcessing && (
+              {importExport.importFileInfo && !importExport.importProcessing && (
                 <div className="import-file-info">
                   <div className="import-file-meta">
                     <FileText size={18} />
                     <div>
-                      <strong>{importFileInfo.name}</strong>
-                      <span>{(importFileInfo.size / 1024).toFixed(2)} KB</span>
+                      <strong>{importExport.importFileInfo.name}</strong>
+                      <span>{(importExport.importFileInfo.size / 1024).toFixed(2)} KB</span>
                     </div>
                   </div>
                   <button type="button" className="ghost" onClick={importExport.triggerImportFileSelect}>
@@ -3565,7 +3565,7 @@ function App() {
                                 <input
                                   type="text"
                                   value={importExport.importNewGhName}
-                                  onChange={(e) => setImportNewGhName(e.target.value)}
+                                  onChange={(e) => importExport.setImportNewGhName(e.target.value)}
                                   placeholder={`导入温室 ${greenhouses.length + 1} 号`}
                                 />
                               </label>
@@ -3591,7 +3591,7 @@ function App() {
                           type="radio"
                           name="importSourceGh"
                           value={gh.id}
-                          checked={importSourceGhId === gh.id}
+                          checked={importExport.importSourceGhId === gh.id}
                           onChange={(e) => importExport.setImportSourceGhId(e.target.value)}
                         />
                         <div className="import-source-content">
@@ -3678,11 +3678,11 @@ function App() {
                   ) : (
                     (() => {
                       const isFullBackup = importExport.importPreview.importType === EXPORT_TYPES.FULL_BACKUP;
-                      const impact = isFullBackup && importSourceGhId
-                        ? importExport.importPreview.preview.impactByGh?.[importSourceGhId]?.preview
+                      const impact = isFullBackup && importExport.importSourceGhId
+                        ? importExport.importPreview.preview.impactByGh?.[importExport.importSourceGhId]?.preview
                         : importExport.importPreview.preview;
-                      const sourceGhName = isFullBackup && importSourceGhId
-                        ? importExport.importPreview.preview.sourceGreenhouses.find(g => g.id === importSourceGhId)?.name
+                      const sourceGhName = isFullBackup && importExport.importSourceGhId
+                        ? importExport.importPreview.preview.sourceGreenhouses.find(g => g.id === importExport.importSourceGhId)?.name
                         : importExport.importPreview.preview.sourceGreenhouse?.name;
 
                       const targetGhName = importExport.importMode === IMPORT_MODES.SPECIFIC_GREENHOUSE
@@ -3843,7 +3843,7 @@ function App() {
 
             {importExport.importPreview && importExport.importPreview.valid && (
               <div className="import-modal-footer">
-                <button type="button" className="ghost" onClick={handleImportCancel}>
+                <button type="button" className="ghost" onClick={importExport.handleImportCancel}>
                   取消
                 </button>
                 <button

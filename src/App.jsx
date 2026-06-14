@@ -1,15 +1,19 @@
 import { Fragment, useMemo, useState, useRef, useEffect } from 'react';
 import { Sprout, Plus, Search, Trash2, RotateCcw, CheckCircle2, AlertTriangle, ClipboardList, CalendarDays, BookOpen, ChevronDown, ChevronUp, ArrowRight, FileText, Calculator, Droplets, Beaker, Scale, Info, RefreshCw, GitCompareArrows, Grid3X3, Flower2, X, Layers, Archive, ShieldAlert, TrendingDown, TrendingUp, Copy, Download, Upload, Database, HardDriveUpload, HardDriveDownload, Calendar, FlaskConical, Leaf, Eye, CheckCircle, History, LeafyGreen, Bug, Activity, Building2, Settings, Pencil, ChevronRight, Save } from 'lucide-react';
 import './App.css';
-import { recipeTemplates, cropOptions, cropStageRanges, getAllTemplates, addCustomTemplate, deleteCustomTemplate, getAllCropOptions } from './recipeTemplates';
+import { recipeTemplates, cropOptions, cropStageRanges, getAllTemplates, addCustomTemplate, deleteCustomTemplate, getAllCropOptions, loadCustomTemplates, saveCustomTemplates } from './recipeTemplates';
 import RecipeCalendar from './RecipeCalendar';
 import {
-  exportData,
+  exportGreenhouseData,
+  exportFullBackup,
   downloadJSON,
   generateExportFilename,
   parseImportFile,
   validateImportData,
-  mergeImportedData,
+  applyImportMode,
+  EXPORT_TYPES,
+  IMPORT_MODES,
+  detectImportType,
 } from './dataImportExport';
 import {
   loadMultiGreenhouseState,
@@ -274,6 +278,12 @@ function App() {
   const [importFileInfo, setImportFileInfo] = useState(null);
   const [importError, setImportError] = useState(null);
   const [importProcessing, setImportProcessing] = useState(false);
+  const [importMode, setImportMode] = useState(IMPORT_MODES.MERGE_CURRENT);
+  const [importTargetGhId, setImportTargetGhId] = useState('');
+  const [importSourceGhId, setImportSourceGhId] = useState('');
+  const [importNewGhName, setImportNewGhName] = useState('');
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [exportMode, setExportMode] = useState(EXPORT_TYPES.GREENHOUSE_DATA);
   const importFileInputRef = useRef(null);
 
   const [trials, setTrials] = useState(ghData.trials);
@@ -830,9 +840,25 @@ function App() {
   }
 
   function handleExport() {
-    const jsonStr = exportData(records, adjRecords, appConfig, trials, observations);
-    const filename = generateExportFilename(appConfig);
+    setExportMode(EXPORT_TYPES.GREENHOUSE_DATA);
+    setExportModalOpen(true);
+  }
+
+  function handleExportConfirm() {
+    let jsonStr, filename;
+    const greenhouseInfo = { id: activeGhId, name: activeGreenhouse?.name || '未知温室' };
+
+    if (exportMode === EXPORT_TYPES.FULL_BACKUP) {
+      const customTemplates = loadCustomTemplates();
+      jsonStr = exportFullBackup(ghState, appConfig, customTemplates);
+      filename = generateExportFilename(appConfig, EXPORT_TYPES.FULL_BACKUP);
+    } else {
+      jsonStr = exportGreenhouseData(records, adjRecords, appConfig, trials, observations, greenhouseInfo);
+      filename = generateExportFilename(appConfig, EXPORT_TYPES.GREENHOUSE_DATA, greenhouseInfo);
+    }
+
     downloadJSON(jsonStr, filename);
+    setExportModalOpen(false);
   }
 
   function handleImportFileSelect(event) {
@@ -849,7 +875,18 @@ function App() {
 
     parseImportFile(file)
       .then((data) => {
-        const validation = validateImportData(data, records, adjRecords, appConfig, trials, observations);
+        const importType = detectImportType(data);
+        const targetGhId = importTargetGhId || activeGhId;
+        const validation = validateImportData(data, records, adjRecords, appConfig, trials, observations, ghState, targetGhId);
+
+        if (importType === EXPORT_TYPES.FULL_BACKUP) {
+          setImportMode(IMPORT_MODES.OVERWRITE);
+          const firstGhId = Object.keys(validation.cleanData.data || {})[0];
+          setImportSourceGhId(validation.cleanData.activeGreenhouseId || firstGhId || '');
+        } else {
+          setImportMode(IMPORT_MODES.MERGE_CURRENT);
+        }
+
         setImportPreview(validation);
         setImportProcessing(false);
       })
@@ -865,6 +902,10 @@ function App() {
     setImportPreview(null);
     setImportError(null);
     setImportFileInfo(null);
+    setImportMode(IMPORT_MODES.MERGE_CURRENT);
+    setImportTargetGhId('');
+    setImportSourceGhId('');
+    setImportNewGhName('');
     if (importFileInputRef.current) {
       importFileInputRef.current.value = '';
     }
@@ -873,19 +914,77 @@ function App() {
   function handleImportConfirm() {
     if (!importPreview || !importPreview.valid) return;
 
-    const merged = mergeImportedData(importPreview.cleanData, records, adjRecords, trials, observations);
+    const importType = importPreview.importType;
+    const options = {
+      appConfig,
+      targetGhId: importMode === IMPORT_MODES.SPECIFIC_GREENHOUSE ? importTargetGhId : activeGhId,
+      sourceGhId: importSourceGhId,
+      newGreenhouseName: importNewGhName.trim() || undefined,
+    };
 
-    const finalRecords = ensureVersions(merged.records);
+    const newState = applyImportMode(importMode, ghState, importPreview.cleanData, importType, options);
 
-    persistAll(finalRecords, merged.adjRecords, merged.trials, merged.observations);
+    if (importMode === IMPORT_MODES.OVERWRITE && importPreview.cleanData.customTemplates) {
+      saveCustomTemplates(importPreview.cleanData.customTemplates);
+      setCustomTemplatesVersion((v) => v + 1);
+    }
+
+    Object.keys(newState.data || {}).forEach((ghId) => {
+      if (newState.data[ghId]?.records) {
+        newState.data[ghId].records = ensureVersions(newState.data[ghId].records);
+      }
+    });
+
+    saveMultiGreenhouseState(newState);
+    setGhState(newState);
+
+    let successMessage = '';
+    if (importMode === IMPORT_MODES.OVERWRITE) {
+      successMessage = `已覆盖整个应用数据！\n\n`;
+      const ghCount = Object.keys(newState.greenhouses || {}).length;
+      successMessage += `共导入 ${ghCount} 个温室\n`;
+      if (importPreview.preview.customTemplateCount > 0) {
+        successMessage += `自定义模板：${importPreview.preview.customTemplateCount} 个\n`;
+      }
+    } else if (importMode === IMPORT_MODES.NEW_GREENHOUSE) {
+      const newGhId = newState.activeGreenhouseId;
+      const newGhName = newState.greenhouses?.[newGhId]?.name || '新温室';
+      successMessage = `已新建温室「${newGhName}」并导入数据！\n\n`;
+      const ghData = newState.data?.[newGhId];
+      successMessage += `配方记录：${ghData?.records?.length || 0} 条\n`;
+      successMessage += `调整记录：${ghData?.adjRecords?.length || 0} 条\n`;
+      successMessage += `试验记录：${ghData?.trials?.length || 0} 条\n`;
+      successMessage += `观察记录：${ghData?.observations?.length || 0} 条`;
+    } else {
+      const targetGhId = importMode === IMPORT_MODES.SPECIFIC_GREENHOUSE ? importTargetGhId : activeGhId;
+      const targetGhName = ghState.greenhouses?.[targetGhId]?.name || '当前温室';
+      successMessage = `已导入到温室「${targetGhName}」！\n\n`;
+
+      const preview = importPreview.importType === EXPORT_TYPES.FULL_BACKUP && importSourceGhId
+        ? importPreview.preview.impactByGh?.[importSourceGhId]?.preview
+        : importPreview.preview;
+
+      if (preview) {
+        successMessage += `配方记录：新增 ${preview.records?.newCount || 0} 条，覆盖 ${preview.records?.overwriteCount || 0} 条\n`;
+        successMessage += `调整记录：新增 ${preview.adjRecords?.newCount || 0} 条，覆盖 ${preview.adjRecords?.overwriteCount || 0} 条\n`;
+        if (preview.trials) {
+          successMessage += `试验记录：新增 ${preview.trials.newCount || 0} 条，覆盖 ${preview.trials.overwriteCount || 0} 条\n`;
+        }
+        if (preview.observations) {
+          successMessage += `观察记录：新增 ${preview.observations.newCount || 0} 条，覆盖 ${preview.observations.overwriteCount || 0} 条`;
+        }
+      }
+    }
 
     setImportModalOpen(false);
     setImportPreview(null);
     setImportFileInfo(null);
+    setImportMode(IMPORT_MODES.MERGE_CURRENT);
+    setImportTargetGhId('');
+    setImportSourceGhId('');
+    setImportNewGhName('');
 
-    const trialCount = importPreview.preview.trials ? `\n试验记录：新增 ${importPreview.preview.trials.newCount} 条，覆盖 ${importPreview.preview.trials.overwriteCount} 条` : '';
-    const obsCount = importPreview.preview.observations ? `\n观察记录：新增 ${importPreview.preview.observations.newCount} 条，覆盖 ${importPreview.preview.observations.overwriteCount} 条` : '';
-    alert(`导入成功！\n\n配方记录：新增 ${importPreview.preview.records.newCount} 条，覆盖 ${importPreview.preview.records.overwriteCount} 条\n调整记录：新增 ${importPreview.preview.adjRecords.newCount} 条，覆盖 ${importPreview.preview.adjRecords.overwriteCount} 条${trialCount}${obsCount}`);
+    alert(successMessage);
   }
 
   function handleImportCancel() {
@@ -893,6 +992,10 @@ function App() {
     setImportPreview(null);
     setImportError(null);
     setImportFileInfo(null);
+    setImportMode(IMPORT_MODES.MERGE_CURRENT);
+    setImportTargetGhId('');
+    setImportSourceGhId('');
+    setImportNewGhName('');
   }
 
   function applySelectedNpkToCalc() {
@@ -3051,6 +3154,191 @@ function App() {
                 </div>
               )}
 
+              {importPreview && importPreview.importType && (
+                <div className="import-type-indicator">
+                  {importPreview.importType === EXPORT_TYPES.FULL_BACKUP ? (
+                    <>
+                      <Database size={16} />
+                      <span className="import-type-label">完整备份文件</span>
+                      <span className="import-type-desc">
+                        包含 {importPreview.preview.sourceGreenhouses.length} 个温室
+                        {importPreview.preview.customTemplateCount > 0 && `，${importPreview.preview.customTemplateCount} 个自定义模板`}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <Building2 size={16} />
+                      <span className="import-type-label">单温室数据</span>
+                      {importPreview.preview.sourceGreenhouse?.name && (
+                        <span className="import-type-desc">
+                          来自「{importPreview.preview.sourceGreenhouse.name}」
+                        </span>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+
+              {importPreview && importPreview.availableModes && (
+                <div className="import-mode-selector">
+                  <div className="import-mode-selector-title">
+                    <Settings size={16} />
+                    <strong>导入模式</strong>
+                  </div>
+                  <div className="import-mode-options">
+                    {importPreview.availableModes.includes(IMPORT_MODES.OVERWRITE) && (
+                      <label className="import-mode-option">
+                        <input
+                          type="radio"
+                          name="importMode"
+                          value={IMPORT_MODES.OVERWRITE}
+                          checked={importMode === IMPORT_MODES.OVERWRITE}
+                          onChange={(e) => setImportMode(e.target.value)}
+                        />
+                        <div className="import-mode-content">
+                          <div className="import-mode-title">
+                            <ShieldAlert size={16} />
+                            <strong>覆盖整个应用</strong>
+                          </div>
+                          <p className="import-mode-desc">
+                            删除所有现有数据，用备份文件中的内容完全替换。包括所有温室、配方和自定义模板。
+                          </p>
+                          <div className="import-mode-danger">
+                            <AlertTriangle size={14} />
+                            <span>此操作不可恢复，建议先导出当前数据备份</span>
+                          </div>
+                        </div>
+                      </label>
+                    )}
+
+                    {importPreview.availableModes.includes(IMPORT_MODES.MERGE_CURRENT) && (
+                      <label className="import-mode-option">
+                        <input
+                          type="radio"
+                          name="importMode"
+                          value={IMPORT_MODES.MERGE_CURRENT}
+                          checked={importMode === IMPORT_MODES.MERGE_CURRENT}
+                          onChange={(e) => setImportMode(e.target.value)}
+                        />
+                        <div className="import-mode-content">
+                          <div className="import-mode-title">
+                            <RefreshCw size={16} />
+                            <strong>合并到当前温室</strong>
+                          </div>
+                          <p className="import-mode-desc">
+                            将导入的数据合并到「{activeGreenhouse?.name || '当前温室'}」。ID 相同的记录将被覆盖，新增记录将被添加。
+                          </p>
+                        </div>
+                      </label>
+                    )}
+
+                    {importPreview.availableModes.includes(IMPORT_MODES.SPECIFIC_GREENHOUSE) && (
+                      <label className="import-mode-option">
+                        <input
+                          type="radio"
+                          name="importMode"
+                          value={IMPORT_MODES.SPECIFIC_GREENHOUSE}
+                          checked={importMode === IMPORT_MODES.SPECIFIC_GREENHOUSE}
+                          onChange={(e) => setImportMode(e.target.value)}
+                        />
+                        <div className="import-mode-content">
+                          <div className="import-mode-title">
+                            <Building2 size={16} />
+                            <strong>导入到指定温室</strong>
+                          </div>
+                          <p className="import-mode-desc">
+                            选择一个现有的温室，将数据合并到该温室中。
+                          </p>
+                          {importMode === IMPORT_MODES.SPECIFIC_GREENHOUSE && (
+                            <div className="import-target-selector">
+                              <label>
+                                <span>目标温室</span>
+                                <select
+                                  value={importTargetGhId || activeGhId}
+                                  onChange={(e) => setImportTargetGhId(e.target.value)}
+                                >
+                                  {greenhouses.map((gh) => (
+                                    <option key={gh.id} value={gh.id}>
+                                      {gh.name}（{ghState.data[gh.id]?.records?.length || 0} 条配方）
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                            </div>
+                          )}
+                        </div>
+                      </label>
+                    )}
+
+                    {importPreview.availableModes.includes(IMPORT_MODES.NEW_GREENHOUSE) && (
+                      <label className="import-mode-option">
+                        <input
+                          type="radio"
+                          name="importMode"
+                          value={IMPORT_MODES.NEW_GREENHOUSE}
+                          checked={importMode === IMPORT_MODES.NEW_GREENHOUSE}
+                          onChange={(e) => setImportMode(e.target.value)}
+                        />
+                        <div className="import-mode-content">
+                          <div className="import-mode-title">
+                            <Plus size={16} />
+                            <strong>新建温室承接数据</strong>
+                          </div>
+                          <p className="import-mode-desc">
+                            创建一个新的温室，所有导入的数据将自动重新生成 ID 以避免冲突。
+                          </p>
+                          {importMode === IMPORT_MODES.NEW_GREENHOUSE && (
+                            <div className="import-target-selector">
+                              <label>
+                                <span>新温室名称</span>
+                                <input
+                                  type="text"
+                                  value={importNewGhName}
+                                  onChange={(e) => setImportNewGhName(e.target.value)}
+                                  placeholder={`导入温室 ${greenhouses.length + 1} 号`}
+                                />
+                              </label>
+                            </div>
+                          )}
+                        </div>
+                      </label>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {importPreview && importPreview.importType === EXPORT_TYPES.FULL_BACKUP && importMode !== IMPORT_MODES.OVERWRITE && (
+                <div className="import-source-selector">
+                  <div className="import-source-selector-title">
+                    <Building2 size={16} />
+                    <strong>选择源温室</strong>
+                  </div>
+                  <div className="import-source-options">
+                    {importPreview.preview.sourceGreenhouses.map((gh) => (
+                      <label key={gh.id} className="import-source-option">
+                        <input
+                          type="radio"
+                          name="importSourceGh"
+                          value={gh.id}
+                          checked={importSourceGhId === gh.id}
+                          onChange={(e) => setImportSourceGhId(e.target.value)}
+                        />
+                        <div className="import-source-content">
+                          <strong>{gh.name}</strong>
+                          {gh.id === importPreview.preview.sourceActiveGhId && (
+                            <span className="import-source-active">原激活温室</span>
+                          )}
+                          <span className="import-source-stats">
+                            {importPreview.preview.impactByGh?.[gh.id]?.preview?.records?.newCount || 0} 条配方，
+                            {importPreview.preview.impactByGh?.[gh.id]?.preview?.adjRecords?.newCount || 0} 条调整
+                          </span>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {importPreview && (
                 <div className="import-preview">
                   {importPreview.warnings.length > 0 && (
@@ -3064,75 +3352,201 @@ function App() {
                     </div>
                   )}
 
-                  <div className="import-preview-stats import-preview-stats-4">
-                    <div className="import-preview-stat">
-                      <div className="import-preview-stat-header">
-                        <strong>配方记录</strong>
+                  {importPreview.importType === EXPORT_TYPES.FULL_BACKUP && importMode === IMPORT_MODES.OVERWRITE ? (
+                    <div className="import-full-backup-preview">
+                      <div className="import-preview-section-title">
+                        <Database size={16} />
+                        <strong>导入影响范围（覆盖整个应用）</strong>
                       </div>
-                      <div className="import-preview-stat-numbers">
-                        <span className="import-preview-number import-preview-new">
-                          <Plus size={14} />
-                          新增 {importPreview.preview.records.newCount}
-                        </span>
-                        <span className="import-preview-number import-preview-overwrite">
-                          <RefreshCw size={14} />
-                          覆盖 {importPreview.preview.records.overwriteCount}
-                        </span>
+                      <div className="import-backup-summary">
+                        <div className="import-backup-summary-item">
+                          <span>将删除现有温室数</span>
+                          <strong>{greenhouses.length} 个</strong>
+                        </div>
+                        <div className="import-backup-summary-item">
+                          <span>将导入温室数</span>
+                          <strong>{importPreview.preview.sourceGreenhouses.length} 个</strong>
+                        </div>
+                        {importPreview.preview.customTemplateCount > 0 && (
+                          <div className="import-backup-summary-item">
+                            <span>将导入自定义模板</span>
+                            <strong>{importPreview.preview.customTemplateCount} 个</strong>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="import-backup-greenhouses">
+                        {importPreview.preview.sourceGreenhouses.map((gh) => {
+                          const impact = importPreview.preview.impactByGh?.[gh.id];
+                          const data = importPreview.cleanData.data?.[gh.id];
+                          const isActive = gh.id === importPreview.preview.sourceActiveGhId;
+                          return (
+                            <div key={gh.id} className="import-backup-gh-card">
+                              <div className="import-backup-gh-head">
+                                <Building2 size={16} />
+                                <strong>{gh.name}</strong>
+                                {isActive && <span className="import-gh-active-tag">激活</span>}
+                              </div>
+                              <div className="import-backup-gh-stats">
+                                <span>配方 {data?.records?.length || 0} 条</span>
+                                <span>调整 {data?.adjRecords?.length || 0} 条</span>
+                                <span>试验 {data?.trials?.length || 0} 条</span>
+                                <span>观察 {data?.observations?.length || 0} 条</span>
+                              </div>
+                              {impact?.willOverwrite && (
+                                <div className="import-backup-gh-overwrite">
+                                  <AlertTriangle size={12} />
+                                  <span>将覆盖现有同名温室</span>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
+                  ) : (
+                    (() => {
+                      const isFullBackup = importPreview.importType === EXPORT_TYPES.FULL_BACKUP;
+                      const impact = isFullBackup && importSourceGhId
+                        ? importPreview.preview.impactByGh?.[importSourceGhId]?.preview
+                        : importPreview.preview;
+                      const sourceGhName = isFullBackup && importSourceGhId
+                        ? importPreview.preview.sourceGreenhouses.find(g => g.id === importSourceGhId)?.name
+                        : importPreview.preview.sourceGreenhouse?.name;
 
-                    <div className="import-preview-stat">
-                      <div className="import-preview-stat-header">
-                        <strong>调整记录</strong>
-                      </div>
-                      <div className="import-preview-stat-numbers">
-                        <span className="import-preview-number import-preview-new">
-                          <Plus size={14} />
-                          新增 {importPreview.preview.adjRecords.newCount}
-                        </span>
-                        <span className="import-preview-number import-preview-overwrite">
-                          <RefreshCw size={14} />
-                          覆盖 {importPreview.preview.adjRecords.overwriteCount}
-                        </span>
-                      </div>
-                    </div>
+                      const targetGhName = importMode === IMPORT_MODES.SPECIFIC_GREENHOUSE
+                        ? ghState.greenhouses?.[importTargetGhId]?.name
+                        : activeGreenhouse?.name;
 
-                    {importPreview.preview.trials && (
-                      <div className="import-preview-stat">
-                        <div className="import-preview-stat-header">
-                          <strong>试验记录</strong>
-                        </div>
-                        <div className="import-preview-stat-numbers">
-                          <span className="import-preview-number import-preview-new">
-                            <Plus size={14} />
-                            新增 {importPreview.preview.trials.newCount}
-                          </span>
-                          <span className="import-preview-number import-preview-overwrite">
-                            <RefreshCw size={14} />
-                            覆盖 {importPreview.preview.trials.overwriteCount}
-                          </span>
-                        </div>
-                      </div>
-                    )}
+                      return impact ? (
+                        <>
+                          <div className="import-preview-section-title">
+                            <Activity size={16} />
+                            <strong>
+                              导入影响范围
+                              {sourceGhName && <> · 源：{sourceGhName}</>}
+                              {importMode === IMPORT_MODES.NEW_GREENHOUSE && <> · 目标：新建温室</>}
+                              {importMode !== IMPORT_MODES.NEW_GREENHOUSE && targetGhName && <> · 目标：{targetGhName}</>}
+                            </strong>
+                          </div>
 
-                    {importPreview.preview.observations && (
-                      <div className="import-preview-stat">
-                        <div className="import-preview-stat-header">
-                          <strong>观察记录</strong>
-                        </div>
-                        <div className="import-preview-stat-numbers">
-                          <span className="import-preview-number import-preview-new">
-                            <Plus size={14} />
-                            新增 {importPreview.preview.observations.newCount}
-                          </span>
-                          <span className="import-preview-number import-preview-overwrite">
-                            <RefreshCw size={14} />
-                            覆盖 {importPreview.preview.observations.overwriteCount}
-                          </span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                          <div className="import-preview-stats import-preview-stats-4">
+                            <div className="import-preview-stat">
+                              <div className="import-preview-stat-header">
+                                <strong>配方记录</strong>
+                              </div>
+                              <div className="import-preview-stat-numbers">
+                                <span className="import-preview-number import-preview-new">
+                                  <Plus size={14} />
+                                  新增 {importMode === IMPORT_MODES.NEW_GREENHOUSE ? impact.records.newCount + impact.records.overwriteCount : impact.records.newCount}
+                                </span>
+                                {importMode !== IMPORT_MODES.NEW_GREENHOUSE && (
+                                  <span className="import-preview-number import-preview-overwrite">
+                                    <RefreshCw size={14} />
+                                    覆盖 {impact.records.overwriteCount}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="import-preview-stat">
+                              <div className="import-preview-stat-header">
+                                <strong>调整记录</strong>
+                              </div>
+                              <div className="import-preview-stat-numbers">
+                                <span className="import-preview-number import-preview-new">
+                                  <Plus size={14} />
+                                  新增 {importMode === IMPORT_MODES.NEW_GREENHOUSE ? impact.adjRecords.newCount + impact.adjRecords.overwriteCount : impact.adjRecords.newCount}
+                                </span>
+                                {importMode !== IMPORT_MODES.NEW_GREENHOUSE && (
+                                  <span className="import-preview-number import-preview-overwrite">
+                                    <RefreshCw size={14} />
+                                    覆盖 {impact.adjRecords.overwriteCount}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            {impact.trials && (
+                              <div className="import-preview-stat">
+                                <div className="import-preview-stat-header">
+                                  <strong>试验记录</strong>
+                                </div>
+                                <div className="import-preview-stat-numbers">
+                                  <span className="import-preview-number import-preview-new">
+                                    <Plus size={14} />
+                                    新增 {importMode === IMPORT_MODES.NEW_GREENHOUSE ? impact.trials.newCount + impact.trials.overwriteCount : impact.trials.newCount}
+                                  </span>
+                                  {importMode !== IMPORT_MODES.NEW_GREENHOUSE && (
+                                    <span className="import-preview-number import-preview-overwrite">
+                                      <RefreshCw size={14} />
+                                      覆盖 {impact.trials.overwriteCount}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+
+                            {impact.observations && (
+                              <div className="import-preview-stat">
+                                <div className="import-preview-stat-header">
+                                  <strong>观察记录</strong>
+                                </div>
+                                <div className="import-preview-stat-numbers">
+                                  <span className="import-preview-number import-preview-new">
+                                    <Plus size={14} />
+                                    新增 {importMode === IMPORT_MODES.NEW_GREENHOUSE ? impact.observations.newCount + impact.observations.overwriteCount : impact.observations.newCount}
+                                  </span>
+                                  {importMode !== IMPORT_MODES.NEW_GREENHOUSE && (
+                                    <span className="import-preview-number import-preview-overwrite">
+                                      <RefreshCw size={14} />
+                                      覆盖 {impact.observations.overwriteCount}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+
+                          {importMode !== IMPORT_MODES.NEW_GREENHOUSE && impact.records.overwriteItems.length > 0 && (
+                            <div className="import-overwrite-preview">
+                              <div className="import-overwrite-preview-header">
+                                <AlertTriangle size={16} />
+                                <strong>将覆盖的配方记录（{impact.records.overwriteItems.length} 条）</strong>
+                              </div>
+                              <div className="import-overwrite-list">
+                                {impact.records.overwriteItems.slice(0, 5).map((item) => (
+                                  <div key={item.id} className="import-overwrite-item">
+                                    <span className="import-overwrite-crop">{item.crop}</span>
+                                    <span className="import-overwrite-stage">{item.stage}</span>
+                                    <span className="import-overwrite-version">v{item.version || '?'}</span>
+                                    <span className="import-overwrite-status">{item.status}</span>
+                                  </div>
+                                ))}
+                                {impact.records.overwriteItems.length > 5 && (
+                                  <p className="import-more-errors">
+                                    ...还有 {impact.records.overwriteItems.length - 5} 条记录将被覆盖
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="import-preview-footer">
+                            <div className="import-preview-total">
+                              <Database size={16} />
+                              <span>
+                                {importMode === IMPORT_MODES.NEW_GREENHOUSE ? '将创建' : '共导入'} {impact.records.newCount + impact.records.overwriteCount} 条配方，
+                                {impact.adjRecords.newCount + impact.adjRecords.overwriteCount} 条调整记录
+                                {impact.trials && `，${impact.trials.newCount + impact.trials.overwriteCount} 条试验`}
+                                {impact.observations && `，${impact.observations.newCount + impact.observations.overwriteCount} 条观察记录`}
+                              </span>
+                            </div>
+                          </div>
+                        </>
+                      ) : null;
+                    })()
+                  )}
 
                   {importPreview.preview.formatErrors.length > 0 && (
                     <div className="import-format-errors">
@@ -3152,42 +3566,6 @@ function App() {
                       </div>
                     </div>
                   )}
-
-                  {importPreview.preview.records.overwriteItems.length > 0 && (
-                    <div className="import-overwrite-preview">
-                      <div className="import-overwrite-preview-header">
-                        <AlertTriangle size={16} />
-                        <strong>将覆盖的配方记录（{importPreview.preview.records.overwriteItems.length} 条）</strong>
-                      </div>
-                      <div className="import-overwrite-list">
-                        {importPreview.preview.records.overwriteItems.slice(0, 5).map((item) => (
-                          <div key={item.id} className="import-overwrite-item">
-                            <span className="import-overwrite-crop">{item.crop}</span>
-                            <span className="import-overwrite-stage">{item.stage}</span>
-                            <span className="import-overwrite-version">v{item.version || '?'}</span>
-                            <span className="import-overwrite-status">{item.status}</span>
-                          </div>
-                        ))}
-                        {importPreview.preview.records.overwriteItems.length > 5 && (
-                          <p className="import-more-errors">
-                            ...还有 {importPreview.preview.records.overwriteItems.length - 5} 条记录将被覆盖
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="import-preview-footer">
-                    <div className="import-preview-total">
-                      <Database size={16} />
-                      <span>
-                        共导入 {importPreview.preview.records.newCount + importPreview.preview.records.overwriteCount} 条配方，
-                        {importPreview.preview.adjRecords.newCount + importPreview.preview.adjRecords.overwriteCount} 条调整记录
-                        {importPreview.preview.trials && `，${importPreview.preview.trials.newCount + importPreview.preview.trials.overwriteCount} 条试验`}
-                        {importPreview.preview.observations && `，${importPreview.preview.observations.newCount + importPreview.preview.observations.overwriteCount} 条观察记录`}
-                      </span>
-                    </div>
-                  </div>
                 </div>
               )}
             </div>
@@ -3208,6 +3586,86 @@ function App() {
                 </button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {exportModalOpen && (
+        <div className="modal-overlay" onClick={() => setExportModalOpen(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title">
+                <HardDriveDownload size={20} />
+                <h3>导出数据</h3>
+              </div>
+              <button type="button" className="modal-close" onClick={() => setExportModalOpen(false)}>
+                <X size={20} />
+              </button>
+            </div>
+            <div className="modal-body">
+              <div className="export-mode-selector">
+                <label className="export-mode-option">
+                  <input
+                    type="radio"
+                    name="exportMode"
+                    value={EXPORT_TYPES.GREENHOUSE_DATA}
+                    checked={exportMode === EXPORT_TYPES.GREENHOUSE_DATA}
+                    onChange={(e) => setExportMode(e.target.value)}
+                  />
+                  <div className="export-mode-content">
+                    <div className="export-mode-title">
+                      <Building2 size={18} />
+                      <strong>当前温室数据</strong>
+                    </div>
+                    <p className="export-mode-desc">
+                      导出「{activeGreenhouse?.name || '当前温室'}」的配方、调整记录、试验和观察记录。适合在不同应用间交换单个温室的数据。
+                    </p>
+                    <div className="export-mode-stats">
+                      <span>配方 {records.length} 条</span>
+                      <span>调整 {adjRecords.length} 条</span>
+                      <span>试验 {trials.length} 条</span>
+                      <span>观察 {observations.length} 条</span>
+                    </div>
+                  </div>
+                </label>
+
+                <label className="export-mode-option">
+                  <input
+                    type="radio"
+                    name="exportMode"
+                    value={EXPORT_TYPES.FULL_BACKUP}
+                    checked={exportMode === EXPORT_TYPES.FULL_BACKUP}
+                    onChange={(e) => setExportMode(e.target.value)}
+                  />
+                  <div className="export-mode-content">
+                    <div className="export-mode-title">
+                      <Database size={18} />
+                      <strong>完整备份</strong>
+                    </div>
+                    <p className="export-mode-desc">
+                      导出所有温室、当前激活温室、配方、调整记录、试验、观察记录和自定义模板。用于完整备份或迁移整个应用数据。
+                    </p>
+                    <div className="export-mode-stats">
+                      <span>温室 {greenhouses.length} 个</span>
+                      <span>自定义模板 {getAllTemplates().filter(t => t.isCustom).length} 个</span>
+                    </div>
+                    <div className="export-mode-warning">
+                      <AlertTriangle size={14} />
+                      <span>完整备份包含全部数据，导入时可选择覆盖整个应用</span>
+                    </div>
+                  </div>
+                </label>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button type="button" className="ghost" onClick={() => setExportModalOpen(false)}>
+                取消
+              </button>
+              <button type="button" className="primary" onClick={handleExportConfirm}>
+                <Download size={16} />
+                开始导出
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -367,6 +367,189 @@ textarea { min-height: 76px; resize: vertical; }
   font-weight: 700;
 }
 
+.template-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.template-save-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  color: #047857;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all .15s;
+}
+.template-save-btn:hover {
+  background: #d1fae5;
+  border-color: #6ee7b7;
+}
+
+.template-card {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  padding: 0;
+  overflow: hidden;
+}
+
+.template-card-main {
+  flex: 1;
+  display: grid;
+  gap: 6px;
+  padding: 10px 11px;
+  background: #ffffff;
+  border: 0;
+  text-align: left;
+  cursor: pointer;
+  transition: all .15s;
+}
+.template-card-main:hover {
+  background: #f8fafc;
+}
+
+.template-card-custom {
+  border-color: #bef264;
+  background: #f7fee7;
+}
+.template-card-custom .template-card-main {
+  background: #f7fee7;
+}
+.template-card-custom:hover {
+  border-color: #84cc16;
+}
+.template-card-custom .template-card-main:hover {
+  background: #ecfccb;
+}
+
+.template-badge {
+  background: #84cc16;
+  color: #ffffff;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .5px;
+}
+
+.template-card-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.template-delete-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  background: #fef2f2;
+  border: 0;
+  border-left: 1px solid #fecaca;
+  color: #dc2626;
+  cursor: pointer;
+  transition: all .15s;
+  flex-shrink: 0;
+}
+.template-delete-btn:hover {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.save-template-preview {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  padding: 14px;
+  margin-bottom: 18px;
+}
+.save-template-label {
+  display: block;
+  font-size: 12px;
+  color: #16a34a;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+.save-template-params {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.save-template-params span {
+  background: #ffffff;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #166534;
+  border: 1px solid #bbf7d0;
+}
+.save-template-memo {
+  margin: 0;
+  font-size: 12px;
+  color: #15803d;
+  font-style: italic;
+}
+
+.save-template-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.save-template-form-grid label.wide {
+  grid-column: 1 / -1;
+}
+.save-template-form-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.save-template-form-grid label span {
+  font-size: 12px;
+  font-weight: 600;
+  color: #475467;
+}
+.save-template-form-grid input,
+.save-template-form-grid select {
+  padding: 8px 10px;
+  border: 1px solid #d0d5dd;
+  border-radius: 6px;
+  font-size: 13px;
+}
+.save-template-form-grid input:focus,
+.save-template-form-grid select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(21, 128, 61, .1);
+}
+
+.save-template-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 10px 12px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  color: #1e40af;
+  font-size: 12px;
+  margin: 0;
+  line-height: 1.5;
+}
+.save-template-hint svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
 @media (max-width: 980px) {
   .shell { padding: 16px; }
   .hero, .workspace, .insights { grid-template-columns: 1fr; display: grid; }
@@ -379,7 +562,10 @@ textarea { min-height: 76px; resize: vertical; }
   .form-grid, .toolbar { grid-template-columns: 1fr; display: grid; }
   .record-head { display: grid; }
   .template-toolbar { flex-direction: column; align-items: stretch; }
-  .template-toolbar select { width: 100%; }
+  .template-toolbar-actions { flex-direction: column; align-items: stretch; }
+  .template-toolbar-actions select { width: 100%; }
+  .template-save-btn { justify-content: center; }
+  .save-template-form-grid { grid-template-columns: 1fr; }
   .adj-toolbar { flex-direction: column; }
 }
 

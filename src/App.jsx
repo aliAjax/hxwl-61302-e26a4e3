@@ -1,7 +1,7 @@
 import { Fragment, useMemo, useState, useRef, useEffect } from 'react';
 import { Sprout, Plus, Search, Trash2, RotateCcw, CheckCircle2, AlertTriangle, ClipboardList, CalendarDays, BookOpen, ChevronDown, ChevronUp, ArrowRight, FileText, Calculator, Droplets, Beaker, Scale, Info, RefreshCw, GitCompareArrows, Grid3X3, Flower2, X, Layers, Archive, ShieldAlert, TrendingDown, TrendingUp, Copy, Download, Upload, Database, HardDriveUpload, HardDriveDownload, Calendar, FlaskConical, Leaf, Eye, CheckCircle, History, LeafyGreen, Bug, Activity, Building2, Settings, Pencil, ChevronRight } from 'lucide-react';
 import './App.css';
-import { recipeTemplates, cropOptions, cropStageRanges } from './recipeTemplates';
+import { recipeTemplates, cropOptions, cropStageRanges, getAllTemplates, addCustomTemplate, deleteCustomTemplate, getAllCropOptions } from './recipeTemplates';
 import RecipeCalendar from './RecipeCalendar';
 import {
   exportData,
@@ -293,6 +293,10 @@ function App() {
   const [copyRecipeTarget, setCopyRecipeTarget] = useState(null);
   const [copyTargetGhId, setCopyTargetGhId] = useState('');
 
+  const [saveTemplateModalOpen, setSaveTemplateModalOpen] = useState(false);
+  const [saveTemplateForm, setSaveTemplateForm] = useState({ name: '', crop: '', stage: '' });
+  const [customTemplatesVersion, setCustomTemplatesVersion] = useState(0);
+
   const boardStages = ['育苗期', '营养生长期', '开花期', '结果期'];
 
   useEffect(() => {
@@ -498,9 +502,48 @@ function App() {
     });
   }
 
+  const allCropOptions = useMemo(() => getAllCropOptions(), [customTemplatesVersion]);
+
   const filteredTemplates = useMemo(() => {
-    return recipeTemplates.filter((t) => templateCrop === '全部' || t.crop === templateCrop);
-  }, [templateCrop]);
+    const allTpls = getAllTemplates();
+    return allTpls.filter((t) => templateCrop === '全部' || t.crop === templateCrop);
+  }, [templateCrop, customTemplatesVersion]);
+
+  function openSaveTemplateModal() {
+    setSaveTemplateForm({
+      name: form.crop && form.stage ? `${form.crop} · ${form.stage}` : '',
+      crop: form.crop || '',
+      stage: form.stage || ''
+    });
+    setSaveTemplateModalOpen(true);
+  }
+
+  function handleSaveTemplate(event) {
+    event.preventDefault();
+    if (!saveTemplateForm.name.trim() || !saveTemplateForm.crop.trim() || !saveTemplateForm.stage.trim()) {
+      alert('请填写模板名称、作物和生长期');
+      return;
+    }
+    const newTemplate = {
+      name: saveTemplateForm.name.trim(),
+      crop: saveTemplateForm.crop.trim(),
+      stage: saveTemplateForm.stage.trim(),
+      ec: form.ec || '',
+      ph: form.ph || '',
+      npk: form.npk || '',
+      memo: form.memo || ''
+    };
+    addCustomTemplate(newTemplate);
+    setCustomTemplatesVersion((v) => v + 1);
+    setSaveTemplateModalOpen(false);
+    alert('自定义模板已保存！');
+  }
+
+  function handleDeleteCustomTemplate(templateId, templateName) {
+    if (!confirm(`确定要删除自定义模板「${templateName}」吗？此操作不可恢复。`)) return;
+    deleteCustomTemplate(templateId);
+    setCustomTemplatesVersion((v) => v + 1);
+  }
 
   function addRecord(event) {
     event.preventDefault();
@@ -1307,30 +1350,53 @@ function App() {
             {templateOpen && (
               <div className="template-body">
                 <div className="template-toolbar">
-                  <span className="template-count">共 {filteredTemplates.length} 个模板</span>
-                  <select value={templateCrop} onChange={(e) => setTemplateCrop(e.target.value)}>
-                    <option>全部</option>
-                    {cropOptions.map((crop) => <option key={crop}>{crop}</option>)}
-                  </select>
+                  <span className="template-count">共 {filteredTemplates.length} 个模板（内置 + 自定义）</span>
+                  <div className="template-toolbar-actions">
+                    <button type="button" className="template-save-btn" onClick={openSaveTemplateModal}>
+                      <Plus size={14} />
+                      <span>保存当前配方为模板</span>
+                    </button>
+                    <select value={templateCrop} onChange={(e) => setTemplateCrop(e.target.value)}>
+                      <option>全部</option>
+                      {allCropOptions.map((crop) => <option key={crop}>{crop}</option>)}
+                    </select>
+                  </div>
                 </div>
                 <div className="template-grid">
                   {filteredTemplates.map((template) => (
-                    <button type="button" key={template.id} className="template-card" onClick={() => applyTemplate(template)}>
-                      <div className="template-card-head">
-                        <strong>{template.crop}</strong>
-                        <span className="template-stage">{template.stage}</span>
-                      </div>
-                      <div className="template-card-params">
-                        <span>EC {template.ec}</span>
-                        <span>pH {template.ph}</span>
-                        <span>NPK {template.npk}</span>
-                      </div>
-                      <p className="template-card-memo">{template.memo}</p>
-                      <div className="template-card-action">
-                        <ArrowRight size={14} />
-                        <span>一键带入</span>
-                      </div>
-                    </button>
+                    <div type="button" key={template.id} className={'template-card ' + (template.isCustom ? 'template-card-custom' : '')}>
+                      <button type="button" className="template-card-main" onClick={() => applyTemplate(template)}>
+                        <div className="template-card-head">
+                          <strong>{template.crop}</strong>
+                          <span className="template-stage">{template.stage}</span>
+                          {template.isCustom && <span className="template-badge">自定义</span>}
+                        </div>
+                        <div className="template-card-name">{template.name}</div>
+                        <div className="template-card-params">
+                          <span>EC {template.ec}</span>
+                          <span>pH {template.ph}</span>
+                          <span>NPK {template.npk}</span>
+                        </div>
+                        <p className="template-card-memo">{template.memo}</p>
+                        <div className="template-card-action">
+                          <ArrowRight size={14} />
+                          <span>一键带入</span>
+                        </div>
+                      </button>
+                      {template.isCustom && (
+                        <button
+                          type="button"
+                          className="template-delete-btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteCustomTemplate(template.id, template.name);
+                          }}
+                          title="删除自定义模板"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      )}
+                    </div>
                   ))}
                 </div>
               </div>
@@ -2765,6 +2831,83 @@ function App() {
                 确认复制
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {saveTemplateModalOpen && (
+        <div className="modal-overlay" onClick={() => { setSaveTemplateModalOpen(false); }}>
+          <div className="modal save-template-modal" onClick={(e) => e.stopPropagation()}>
+            <form onSubmit={handleSaveTemplate}>
+              <div className="modal-header">
+                <div className="modal-title">
+                  <BookOpen size={18} />
+                  <h3>保存为自定义模板</h3>
+                </div>
+                <button type="button" className="modal-close" onClick={() => { setSaveTemplateModalOpen(false); }}>
+                  <X size={18} />
+                </button>
+              </div>
+              <div className="modal-body">
+                <div className="save-template-preview">
+                  <span className="save-template-label">当前配方参数</span>
+                  <div className="save-template-params">
+                    <span>EC {form.ec || '-'}</span>
+                    <span>pH {form.ph || '-'}</span>
+                    <span>NPK {form.npk || '-'}</span>
+                  </div>
+                  {form.memo && <p className="save-template-memo">{form.memo}</p>}
+                </div>
+                <div className="save-template-form-grid">
+                  <label className="wide">
+                    <span>模板名称 *</span>
+                    <input
+                      type="text"
+                      value={saveTemplateForm.name}
+                      onChange={(e) => setSaveTemplateForm({ ...saveTemplateForm, name: e.target.value })}
+                      placeholder="如：番茄 · 开花期（高钾版）"
+                      required
+                    />
+                  </label>
+                  <label>
+                    <span>作物 *</span>
+                    <input
+                      type="text"
+                      value={saveTemplateForm.crop}
+                      onChange={(e) => setSaveTemplateForm({ ...saveTemplateForm, crop: e.target.value })}
+                      placeholder="如：番茄"
+                      required
+                    />
+                  </label>
+                  <label>
+                    <span>生长期 *</span>
+                    <select
+                      value={saveTemplateForm.stage}
+                      onChange={(e) => setSaveTemplateForm({ ...saveTemplateForm, stage: e.target.value })}
+                      required
+                    >
+                      <option value="">请选择</option>
+                      {appConfig.fields.find((f) => f.key === 'stage')?.options.map((opt) => (
+                        <option key={opt}>{opt}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <p className="save-template-hint">
+                  <Info size={13} />
+                  自定义模板保存在浏览器本地，切换温室后仍可使用。
+                </p>
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="ghost" onClick={() => { setSaveTemplateModalOpen(false); }}>
+                  取消
+                </button>
+                <button type="submit" className="primary">
+                  <Plus size={14} />
+                  保存模板
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

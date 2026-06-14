@@ -1,3 +1,5 @@
+const CUSTOM_TEMPLATES_STORAGE_KEY = 'hxwl-61302-custom-recipe-templates';
+
 const recipeTemplates = [
   {
     id: 'tomato-seedling',
@@ -270,5 +272,68 @@ const cropStageRanges = {
 
 const cropOptions = [...new Set(recipeTemplates.map((t) => t.crop))];
 
-export { recipeTemplates, cropOptions, cropStageRanges };
+function readJSON(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw) return JSON.parse(raw);
+  } catch (e) {}
+  return fallback;
+}
+
+function writeJSON(key, value) {
+  localStorage.setItem(key, JSON.stringify(value));
+}
+
+function loadCustomTemplates() {
+  const templates = readJSON(CUSTOM_TEMPLATES_STORAGE_KEY, []);
+  return Array.isArray(templates) ? templates : [];
+}
+
+function saveCustomTemplates(templates) {
+  writeJSON(CUSTOM_TEMPLATES_STORAGE_KEY, templates);
+}
+
+function getAllTemplates() {
+  const customTemplates = loadCustomTemplates().map((t) => ({ ...t, isCustom: true }));
+  const builtinTemplates = recipeTemplates.map((t) => ({ ...t, isCustom: false }));
+  return [...builtinTemplates, ...customTemplates];
+}
+
+function addCustomTemplate(template) {
+  const customTemplates = loadCustomTemplates();
+  const newTemplate = {
+    ...template,
+    id: 'custom-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+    isCustom: true,
+    createdAt: new Date().toISOString()
+  };
+  customTemplates.push(newTemplate);
+  saveCustomTemplates(customTemplates);
+  return newTemplate;
+}
+
+function deleteCustomTemplate(templateId) {
+  const customTemplates = loadCustomTemplates();
+  const filtered = customTemplates.filter((t) => t.id !== templateId);
+  saveCustomTemplates(filtered);
+  return filtered;
+}
+
+function getAllCropOptions() {
+  const allTemplates = getAllTemplates();
+  return [...new Set(allTemplates.map((t) => t.crop))];
+}
+
+export {
+  recipeTemplates,
+  cropOptions,
+  cropStageRanges,
+  CUSTOM_TEMPLATES_STORAGE_KEY,
+  loadCustomTemplates,
+  saveCustomTemplates,
+  getAllTemplates,
+  addCustomTemplate,
+  deleteCustomTemplate,
+  getAllCropOptions
+};
 export default recipeTemplates;

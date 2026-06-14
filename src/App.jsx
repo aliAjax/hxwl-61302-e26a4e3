@@ -1335,6 +1335,65 @@ function App() {
     return getTrialObservations(selectedTrial.id);
   }, [selectedTrial, observations]);
 
+  function buildTrialSummary(obsList) {
+    if (!obsList || obsList.length === 0) return null;
+    const sorted = [...obsList].sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+    const fields = [
+      { key: 'leafColor', label: '叶色', icon: 'Leaf' },
+      { key: 'growth', label: '长势', icon: 'LeafyGreen' },
+      { key: 'rootSystem', label: '根系', icon: 'Sprout' },
+      { key: 'yieldEstimate', label: '产量预估', icon: 'Scale' }
+    ];
+    const trends = {};
+    fields.forEach((f) => {
+      const values = sorted
+        .map((o) => ({ date: o.date, value: o[f.key] || '未记录' }))
+        .filter((x) => x.value && x.value !== '未记录');
+      trends[f.key] = {
+        label: f.label,
+        icon: f.icon,
+        values
+      };
+    });
+    const anomalyList = sorted
+      .map((o) => o.anomaly ? { date: o.date, anomaly: o.anomaly } : null)
+      .filter(Boolean);
+    const latest = sorted[sorted.length - 1];
+    const earliest = sorted[0];
+    return {
+      count: sorted.length,
+      earliestDate: earliest.date,
+      latestDate: latest.date,
+      trends,
+      anomalyList,
+      latestSnapshot: {
+        leafColor: latest.leafColor || '未记录',
+        growth: latest.growth || '未记录',
+        rootSystem: latest.rootSystem || '未记录',
+        yieldEstimate: latest.yieldEstimate || '未记录'
+      }
+    };
+  }
+
+  const selectedTrialSummary = useMemo(() => {
+    if (!selectedTrial || selectedTrialObservations.length === 0) return null;
+    return buildTrialSummary(selectedTrialObservations);
+  }, [selectedTrial, selectedTrialObservations]);
+
+  const adoptTrialSummary = useMemo(() => {
+    if (!adoptTrialId) return null;
+    const obs = getTrialObservations(adoptTrialId);
+    return buildTrialSummary(obs);
+  }, [adoptTrialId, observations]);
+
+  const adoptTrialInfo = useMemo(() => {
+    if (!adoptTrialId) return null;
+    const trial = trials.find((t) => t.id === adoptTrialId);
+    if (!trial) return null;
+    const recipe = records.find((r) => r.id === trial.recipeId);
+    return { trial, recipe };
+  }, [adoptTrialId, trials, records]);
+
   const selectedTrialRecipe = useMemo(() => {
     if (!selectedTrial) return null;
     return records.find((r) => r.id === selectedTrial.recipeId) || null;
@@ -2900,6 +2959,86 @@ function App() {
                 </div>
               )}
 
+              {selectedTrialSummary && (
+                <div className="trial-detail-section">
+                  <div className="trial-section-title">
+                    <Activity size={14} />
+                    前评估摘要 · 表现趋势
+                    <span className="trial-obs-badge">
+                      {selectedTrialSummary.count} 条观察 · {selectedTrialSummary.earliestDate} ~ {selectedTrialSummary.latestDate}
+                    </span>
+                  </div>
+                  <div className="summary-snapshot">
+                    <div className="summary-snapshot-title">最新观察（{selectedTrialSummary.latestDate}）</div>
+                    <div className="summary-snapshot-grid">
+                      <div className="summary-snapshot-item summary-snapshot-leaf">
+                        <Leaf size={14} />
+                        <span className="snapshot-label">叶色</span>
+                        <strong>{selectedTrialSummary.latestSnapshot.leafColor}</strong>
+                      </div>
+                      <div className="summary-snapshot-item summary-snapshot-growth">
+                        <LeafyGreen size={14} />
+                        <span className="snapshot-label">长势</span>
+                        <strong>{selectedTrialSummary.latestSnapshot.growth}</strong>
+                      </div>
+                      <div className="summary-snapshot-item summary-snapshot-root">
+                        <Sprout size={14} />
+                        <span className="snapshot-label">根系</span>
+                        <strong>{selectedTrialSummary.latestSnapshot.rootSystem}</strong>
+                      </div>
+                      <div className="summary-snapshot-item summary-snapshot-yield">
+                        <Scale size={14} />
+                        <span className="snapshot-label">产量预估</span>
+                        <strong>{selectedTrialSummary.latestSnapshot.yieldEstimate}</strong>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="summary-trends">
+                    <div className="summary-trends-title">按日期表现趋势</div>
+                    {['leafColor', 'growth', 'rootSystem', 'yieldEstimate'].map((fieldKey) => {
+                      const trend = selectedTrialSummary.trends[fieldKey];
+                      if (!trend || trend.values.length === 0) return null;
+                      const IconComp = { Leaf, LeafyGreen, Sprout, Scale }[trend.icon];
+                      return (
+                        <div className="summary-trend-row" key={fieldKey}>
+                          <div className="summary-trend-head">
+                            {IconComp && <IconComp size={13} />}
+                            <span className="summary-trend-label">{trend.label}</span>
+                          </div>
+                          <div className="summary-trend-values">
+                            {trend.values.map((v, i) => (
+                              <Fragment key={i}>
+                                <div className="summary-trend-chip">
+                                  <span className="trend-chip-date">{v.date}</span>
+                                  <span className="trend-chip-value">{v.value}</span>
+                                </div>
+                                {i < trend.values.length - 1 && <ChevronRight size={12} className="trend-arrow" />}
+                              </Fragment>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {selectedTrialSummary.anomalyList.length > 0 && (
+                    <div className="summary-anomalies">
+                      <div className="summary-anomalies-title">
+                        <Bug size={13} />
+                        异常记录汇总（{selectedTrialSummary.anomalyList.length} 次）
+                      </div>
+                      <div className="summary-anomalies-list">
+                        {selectedTrialSummary.anomalyList.map((a, i) => (
+                          <div className="summary-anomaly-item" key={i}>
+                            <span className="anomaly-date">{a.date}</span>
+                            <p className="anomaly-text">{a.anomaly}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="trial-detail-section">
                 <div className="trial-section-title">
                   <Eye size={14} />
@@ -3018,7 +3157,15 @@ function App() {
                     <button
                       type="button"
                       className="trial-adopt-btn"
-                      onClick={() => { setAdoptTrialId(selectedTrial.id); setAdoptModalOpen(true); }}
+                      onClick={() => {
+                        const obs = getTrialObservations(selectedTrial.id);
+                        if (obs.length === 0) {
+                          alert('至少需要一条观察记录才能采用为正式配方。请先添加观察记录。');
+                          return;
+                        }
+                        setAdoptTrialId(selectedTrial.id);
+                        setAdoptModalOpen(true);
+                      }}
                     >
                       <CheckCircle size={16} />
                       采用为正式配方
@@ -3054,36 +3201,149 @@ function App() {
 
       {adoptModalOpen && adoptTrialId && (
         <div className="modal-overlay" onClick={() => { setAdoptModalOpen(false); setAdoptTrialId(null); }}>
-          <div className="modal adopt-modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal adopt-modal adopt-modal-large" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <div className="modal-title">
                 <CheckCircle size={18} />
-                <h3>采用试验为正式配方</h3>
+                <h3>采用试验为正式配方 · 前评估摘要</h3>
               </div>
               <button type="button" className="modal-close" onClick={() => { setAdoptModalOpen(false); setAdoptTrialId(null); }}>
                 <X size={18} />
               </button>
             </div>
             <div className="modal-body">
-              <div className="adopt-hint">
-                <Info size={20} />
-                <div>
-                  <p>采用此试验将：</p>
-                  <ul>
-                    <li>基于试验配方自动生成新版本的正式配方（状态为「使用中」）</li>
-                    <li>同组旧的「使用中」配方将自动转为「已归档」</li>
-                    <li>试验状态标记为「已采用」，完整试验记录保留可追溯</li>
-                  </ul>
+              {adoptTrialInfo && (
+                <div className="adopt-trial-info">
+                  <div className="adopt-trial-info-head">
+                    <div>
+                      <strong>{adoptTrialInfo.trial.crop} · {adoptTrialInfo.trial.stage}</strong>
+                      <span className={'status ' + trialStatusClass(adoptTrialInfo.trial.status)}>{adoptTrialInfo.trial.status}</span>
+                    </div>
+                    <span className="adopt-trial-id">#{adoptTrialInfo.trial.id.slice(0, 6)}</span>
+                  </div>
+                  <p className="adopt-trial-goal">试验目标：{adoptTrialInfo.trial.goal}</p>
+                  {adoptTrialInfo.recipe && (
+                    <div className="adopt-trial-recipe">
+                      <span>EC <strong>{adoptTrialInfo.recipe.ec}</strong></span>
+                      <span>pH <strong>{adoptTrialInfo.recipe.ph}</strong></span>
+                      <span>NPK <strong>{adoptTrialInfo.recipe.npk}</strong></span>
+                    </div>
+                  )}
                 </div>
-              </div>
+              )}
+
+              {adoptTrialSummary ? (
+                <>
+                  <div className="adopt-summary-section">
+                    <div className="adopt-summary-title">
+                      <Activity size={14} />
+                      表现评估摘要
+                      <span className="adopt-summary-meta">
+                        {adoptTrialSummary.count} 条观察 · {adoptTrialSummary.earliestDate} ~ {adoptTrialSummary.latestDate}
+                      </span>
+                    </div>
+                    <div className="summary-snapshot">
+                      <div className="summary-snapshot-title">最新状态（{adoptTrialSummary.latestDate}）</div>
+                      <div className="summary-snapshot-grid">
+                        <div className="summary-snapshot-item summary-snapshot-leaf">
+                          <Leaf size={14} />
+                          <span className="snapshot-label">叶色</span>
+                          <strong>{adoptTrialSummary.latestSnapshot.leafColor}</strong>
+                        </div>
+                        <div className="summary-snapshot-item summary-snapshot-growth">
+                          <LeafyGreen size={14} />
+                          <span className="snapshot-label">长势</span>
+                          <strong>{adoptTrialSummary.latestSnapshot.growth}</strong>
+                        </div>
+                        <div className="summary-snapshot-item summary-snapshot-root">
+                          <Sprout size={14} />
+                          <span className="snapshot-label">根系</span>
+                          <strong>{adoptTrialSummary.latestSnapshot.rootSystem}</strong>
+                        </div>
+                        <div className="summary-snapshot-item summary-snapshot-yield">
+                          <Scale size={14} />
+                          <span className="snapshot-label">产量预估</span>
+                          <strong>{adoptTrialSummary.latestSnapshot.yieldEstimate}</strong>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="summary-trends">
+                      <div className="summary-trends-title">按日期表现趋势</div>
+                      {['leafColor', 'growth', 'rootSystem', 'yieldEstimate'].map((fieldKey) => {
+                        const trend = adoptTrialSummary.trends[fieldKey];
+                        if (!trend || trend.values.length === 0) return null;
+                        const IconComp = { Leaf, LeafyGreen, Sprout, Scale }[trend.icon];
+                        return (
+                          <div className="summary-trend-row" key={fieldKey}>
+                            <div className="summary-trend-head">
+                              {IconComp && <IconComp size={13} />}
+                              <span className="summary-trend-label">{trend.label}</span>
+                            </div>
+                            <div className="summary-trend-values">
+                              {trend.values.map((v, i) => (
+                                <Fragment key={i}>
+                                  <div className="summary-trend-chip">
+                                    <span className="trend-chip-date">{v.date}</span>
+                                    <span className="trend-chip-value">{v.value}</span>
+                                  </div>
+                                  {i < trend.values.length - 1 && <ChevronRight size={12} className="trend-arrow" />}
+                                </Fragment>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {adoptTrialSummary.anomalyList.length > 0 && (
+                      <div className="summary-anomalies">
+                        <div className="summary-anomalies-title">
+                          <Bug size={13} />
+                          异常记录汇总（{adoptTrialSummary.anomalyList.length} 次）
+                        </div>
+                        <div className="summary-anomalies-list">
+                          {adoptTrialSummary.anomalyList.map((a, i) => (
+                            <div className="summary-anomaly-item" key={i}>
+                              <span className="anomaly-date">{a.date}</span>
+                              <p className="anomaly-text">{a.anomaly}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="adopt-hint">
+                    <Info size={20} />
+                    <div>
+                      <p>确认采用此试验将：</p>
+                      <ul>
+                        <li>基于试验配方自动生成新版本的正式配方（状态为「使用中」）</li>
+                        <li>同组旧的「使用中」配方将自动转为「已归档」</li>
+                        <li>试验状态标记为「已采用」，完整试验记录保留可追溯</li>
+                      </ul>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="adopt-no-obs">
+                  <AlertTriangle size={32} />
+                  <p>该试验暂无观察记录，无法采用为正式配方。</p>
+                  <p className="adopt-no-obs-sub">请先添加至少一条观察记录后再进行采用操作。</p>
+                </div>
+              )}
             </div>
             <div className="modal-footer">
               <button type="button" className="ghost" onClick={() => { setAdoptModalOpen(false); setAdoptTrialId(null); }}>
                 取消
               </button>
-              <button type="button" className="primary" onClick={() => adoptTrial(adoptTrialId)}>
+              <button
+                type="button"
+                className="primary"
+                onClick={() => adoptTrial(adoptTrialId)}
+                disabled={!adoptTrialSummary}
+              >
                 <CheckCircle size={16} />
-                确认采用
+                {adoptTrialSummary ? '确认采用' : '缺少观察记录'}
               </button>
             </div>
           </div>

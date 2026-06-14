@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState, useRef, useEffect } from 'react';
-import { Sprout, Plus, Search, Trash2, RotateCcw, CheckCircle2, AlertTriangle, ClipboardList, CalendarDays, BookOpen, ChevronDown, ChevronUp, ArrowRight, FileText, Calculator, Droplets, Beaker, Scale, Info, RefreshCw, GitCompareArrows, Grid3X3, Flower2, X, Layers, Archive, ShieldAlert, TrendingDown, TrendingUp, Copy, Download, Upload, Database, HardDriveUpload, HardDriveDownload, Calendar, FlaskConical, Leaf, Eye, CheckCircle, History, LeafyGreen, Bug, Activity, Building2, Settings, Pencil, ChevronRight, Save } from 'lucide-react';
+import { Sprout, Plus, Search, Trash2, RotateCcw, CheckCircle2, AlertTriangle, ClipboardList, CalendarDays, BookOpen, ChevronDown, ChevronUp, ArrowRight, FileText, Calculator, Droplets, Beaker, Scale, Info, RefreshCw, GitCompareArrows, Grid3X3, Flower2, X, Layers, Archive, ShieldAlert, TrendingDown, TrendingUp, Copy, Download, Upload, Database, HardDriveUpload, HardDriveDownload, Calendar, FlaskConical, Leaf, Eye, CheckCircle, History, LeafyGreen, Bug, Activity, Building2, Settings, Pencil, ChevronRight, Save, CheckSquare, Square, Clock } from 'lucide-react';
 import './App.css';
 import { recipeTemplates, cropOptions, cropStageRanges, getAllTemplates, addCustomTemplate, deleteCustomTemplate, getAllCropOptions, loadCustomTemplates, saveCustomTemplates } from './recipeTemplates';
 import RecipeCalendar from './RecipeCalendar';
@@ -312,6 +312,12 @@ function App() {
   const [saveTemplateForm, setSaveTemplateForm] = useState({ name: '', crop: '', stage: '' });
   const [customTemplatesVersion, setCustomTemplatesVersion] = useState(0);
 
+  const [batchMode, setBatchMode] = useState(false);
+  const [batchSelectedIds, setBatchSelectedIds] = useState(new Set());
+  const [batchModalOpen, setBatchModalOpen] = useState(false);
+  const [batchAction, setBatchAction] = useState(null);
+  const [batchScheduleForm, setBatchScheduleForm] = useState({ startDate: '', endDate: '' });
+
   const boardStages = ['育苗期', '营养生长期', '开花期', '结果期'];
 
   useEffect(() => {
@@ -601,11 +607,29 @@ function App() {
   }
 
   function updateSchedule(id, startDate, endDate) {
-    const next = records.map((item) => item.id === id ? {
-      ...item,
-      startDate: startDate || undefined,
-      endDate: endDate || undefined
-    } : item);
+    const next = records.map((item) => {
+      if (item.id !== id) return item;
+      const oldStart = item.startDate;
+      const oldEnd = item.endDate;
+      const newStart = startDate || undefined;
+      const newEnd = endDate || undefined;
+      const hasChange = oldStart !== newStart || oldEnd !== newEnd;
+      if (!hasChange) return item;
+      let byText = '';
+      if (newStart && newEnd) {
+        byText = `设置周期：${newStart} ~ ${newEnd}`;
+      } else if (newStart) {
+        byText = `设置周期：${newStart} ~ 至今`;
+      } else {
+        byText = '清除排期';
+      }
+      return {
+        ...item,
+        startDate: newStart,
+        endDate: newEnd,
+        timeline: [...(item.timeline || []), { status: item.status, at: today, by: byText }]
+      };
+    });
     persist(next);
     if (selected?.id === id) setSelected(next.find((item) => item.id === id));
   }
@@ -631,6 +655,94 @@ function App() {
       endDate: recipe.endDate || ''
     });
     setScheduleFormOpen(true);
+  }
+
+  function toggleBatchMode() {
+    setBatchMode(!batchMode);
+    setBatchSelectedIds(new Set());
+  }
+
+  function toggleBatchSelect(id) {
+    setBatchSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }
+
+  function toggleBatchSelectAll(displayedIds) {
+    setBatchSelectedIds((prev) => {
+      const allSelected = displayedIds.every((id) => prev.has(id));
+      if (allSelected) {
+        return new Set();
+      }
+      return new Set(displayedIds);
+    });
+  }
+
+  function openBatchModal(action) {
+    if (batchSelectedIds.size === 0) return;
+    setBatchAction(action);
+    if (action === 'setSchedule') {
+      setBatchScheduleForm({ startDate: '', endDate: '' });
+    }
+    setBatchModalOpen(true);
+  }
+
+  function executeBatchAction() {
+    if (batchSelectedIds.size === 0 || !batchAction) return;
+    const ids = [...batchSelectedIds];
+    let next = records;
+
+    if (batchAction === 'archive') {
+      next = records.map((item) => {
+        if (!ids.includes(item.id)) return item;
+        if (item.status === '已归档') return item;
+        return {
+          ...item,
+          status: '已归档',
+          timeline: [...(item.timeline || []), { status: '已归档', at: today, by: '批量归档' }]
+        };
+      });
+    } else if (batchAction === 'clearSchedule') {
+      next = records.map((item) => {
+        if (!ids.includes(item.id)) return item;
+        if (!item.startDate && !item.endDate) return item;
+        return {
+          ...item,
+          startDate: undefined,
+          endDate: undefined,
+          timeline: [...(item.timeline || []), { status: item.status, at: today, by: '批量清除排期' }]
+        };
+      });
+    } else if (batchAction === 'setSchedule') {
+      const { startDate, endDate } = batchScheduleForm;
+      if (!startDate) return;
+      next = records.map((item) => {
+        if (!ids.includes(item.id)) return item;
+        return {
+          ...item,
+          startDate: startDate || undefined,
+          endDate: endDate || undefined,
+          timeline: [...(item.timeline || []), { status: item.status, at: today, by: `批量设置周期：${startDate}${endDate ? ' ~ ' + endDate : ''}` }]
+        };
+      });
+    }
+
+    persist(next);
+
+    if (selected && ids.includes(selected.id)) {
+      setSelected(next.find((item) => item.id === selected.id) || null);
+    }
+
+    setBatchModalOpen(false);
+    setBatchAction(null);
+    setBatchSelectedIds(new Set());
+    setBatchMode(false);
   }
 
   function removeRecord(id) {
@@ -1804,28 +1916,92 @@ function App() {
               <option>全部</option>
               {appConfig.statuses.map((status) => <option key={status}>{status}</option>)}
             </select>
+            <button
+              type="button"
+              className={'batch-toggle-btn ' + (batchMode ? 'batch-toggle-active' : '')}
+              onClick={toggleBatchMode}
+            >
+              {batchMode ? <CheckSquare size={14} /> : <Square size={14} />}
+              <span>{batchMode ? '退出批量' : '批量操作'}</span>
+            </button>
           </div>
+
+          {batchMode && (
+            <div className="batch-toolbar">
+              <button
+                type="button"
+                className="batch-select-all-btn"
+                onClick={() => toggleBatchSelectAll(
+                  (boardFilter.crop || boardFilter.stage ? boardFilteredRecords : filteredRecords).map((r) => r.id)
+                )}
+              >
+                {(boardFilter.crop || boardFilter.stage ? boardFilteredRecords : filteredRecords).every((r) => batchSelectedIds.has(r.id)) ? <CheckSquare size={14} /> : <Square size={14} />}
+                <span>{(boardFilter.crop || boardFilter.stage ? boardFilteredRecords : filteredRecords).every((r) => batchSelectedIds.has(r.id)) ? '取消全选' : '全选'}</span>
+              </button>
+              <span className="batch-count">已选 {batchSelectedIds.size} 项</span>
+              <div className="batch-actions">
+                <button type="button" className="batch-action-btn batch-action-archive" disabled={batchSelectedIds.size === 0} onClick={() => openBatchModal('archive')}>
+                  <Archive size={14} />
+                  <span>批量归档</span>
+                </button>
+                <button type="button" className="batch-action-btn batch-action-clear" disabled={batchSelectedIds.size === 0} onClick={() => openBatchModal('clearSchedule')}>
+                  <Clock size={14} />
+                  <span>清除排期</span>
+                </button>
+                <button type="button" className="batch-action-btn batch-action-schedule" disabled={batchSelectedIds.size === 0} onClick={() => openBatchModal('setSchedule')}>
+                  <Calendar size={14} />
+                  <span>设置周期</span>
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className="records">
             {(boardFilter.crop || boardFilter.stage ? boardFilteredRecords : filteredRecords).map((item) => (
-              <article className={'record ' + (item.conflict || hasOverlap(item, records) ? 'conflict' : '')} key={item.id} onClick={() => setSelected(item)}>
-                <div className="record-head">
-                  <div>
-                    <h3>{item.crop}<span className="version-tag">v{item.version || '?'}</span></h3>
-                    <p>{`${item.stage} · EC ${item.ec} · pH ${item.ph}`}</p>
+              <article
+                className={
+                  'record ' +
+                  (item.conflict || hasOverlap(item, records) ? 'conflict ' : '') +
+                  (batchMode && batchSelectedIds.has(item.id) ? 'record-batch-selected ' : '')
+                }
+                key={item.id}
+                onClick={() => {
+                  if (batchMode) {
+                    toggleBatchSelect(item.id);
+                  } else {
+                    setSelected(item);
+                  }
+                }}
+              >
+                {batchMode && (
+                  <div className="record-batch-check" onClick={(e) => e.stopPropagation()}>
+                    {batchSelectedIds.has(item.id)
+                      ? <CheckSquare size={18} className="batch-check-icon batch-check-active" onClick={() => toggleBatchSelect(item.id)} />
+                      : <Square size={18} className="batch-check-icon" onClick={() => toggleBatchSelect(item.id)} />
+                    }
                   </div>
-                  <span className={'status ' + statusClass(item.status)}>{item.status}</span>
-                </div>
-                <p className="record-detail">{`${item.npk}｜${item.memo}`}</p>
-                {(item.conflict || hasOverlap(item, records)) && <div className="warning"><AlertTriangle size={15} />发现冲突</div>}
-                <div className="actions" onClick={(event) => event.stopPropagation()}>
-                  {appConfig.statuses.map((status) => (
-                    <button key={status} type="button" onClick={() => updateStatus(item.id, status)}>{status}</button>
-                  ))}
-                  {appConfig.action === 'copyRecipe' && <button type="button" onClick={() => duplicateRecord(item)}><RotateCcw size={14} />复制</button>}
-                  {greenhouses.length > 1 && <button type="button" onClick={() => openCopyRecipeModal(item)}><Building2 size={14} />复制到温室</button>}
-                  {appConfig.chart && <button type="button" onClick={() => addTemperature(item)}>加温度</button>}
-                  <button className="ghost-danger" type="button" onClick={() => removeRecord(item.id)}><Trash2 size={14} /></button>
+                )}
+                <div className="record-body">
+                  <div className="record-head">
+                    <div>
+                      <h3>{item.crop}<span className="version-tag">v{item.version || '?'}</span></h3>
+                      <p>{`${item.stage} · EC ${item.ec} · pH ${item.ph}`}</p>
+                    </div>
+                    <span className={'status ' + statusClass(item.status)}>{item.status}</span>
+                  </div>
+                  <p className="record-detail">{`${item.npk}｜${item.memo}`}</p>
+                  {(item.conflict || hasOverlap(item, records)) && <div className="warning"><AlertTriangle size={15} />发现冲突</div>}
+                  {!batchMode && (
+                    <div className="actions" onClick={(event) => event.stopPropagation()}>
+                      {appConfig.statuses.map((status) => (
+                        <button key={status} type="button" onClick={() => updateStatus(item.id, status)}>{status}</button>
+                      ))}
+                      {appConfig.action === 'copyRecipe' && <button type="button" onClick={() => duplicateRecord(item)}><RotateCcw size={14} />复制</button>}
+                      {greenhouses.length > 1 && <button type="button" onClick={() => openCopyRecipeModal(item)}><Building2 size={14} />复制到温室</button>}
+                      {appConfig.chart && <button type="button" onClick={() => addTemperature(item)}>加温度</button>}
+                      <button className="ghost-danger" type="button" onClick={() => removeRecord(item.id)}><Trash2 size={14} /></button>
+                    </div>
+                  )}
                 </div>
               </article>
             ))}
@@ -2043,6 +2219,96 @@ function App() {
               </button>
               <button type="button" className="primary" onClick={handleSaveSchedule}>
                 保存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {batchModalOpen && batchAction && (
+        <div className="modal-overlay" onClick={() => { setBatchModalOpen(false); setBatchAction(null); }}>
+          <div className="modal batch-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title">
+                {batchAction === 'archive' && <Archive size={18} />}
+                {batchAction === 'clearSchedule' && <Clock size={18} />}
+                {batchAction === 'setSchedule' && <Calendar size={18} />}
+                <h3>
+                  {batchAction === 'archive' && '批量归档确认'}
+                  {batchAction === 'clearSchedule' && '批量清除排期确认'}
+                  {batchAction === 'setSchedule' && '批量设置使用周期'}
+                </h3>
+              </div>
+              <button type="button" className="modal-close" onClick={() => { setBatchModalOpen(false); setBatchAction(null); }}>
+                <X size={18} />
+              </button>
+            </div>
+            <div className="modal-body">
+              <div className="batch-modal-summary">
+                <span className="batch-modal-count">已选择 <strong>{batchSelectedIds.size}</strong> 条配方</span>
+              </div>
+              <div className="batch-modal-records">
+                {records.filter((r) => batchSelectedIds.has(r.id)).map((r) => (
+                  <div key={r.id} className="batch-modal-record">
+                    <strong>{r.crop}</strong>
+                    <span className="version-tag">v{r.version || '?'}</span>
+                    <span>{r.stage}</span>
+                    <span className={'status ' + statusClass(r.status)}>{r.status}</span>
+                    {r.startDate && <span className="batch-modal-schedule">{r.startDate} ~ {r.endDate || '至今'}</span>}
+                  </div>
+                ))}
+              </div>
+
+              {batchAction === 'archive' && (
+                <div className="batch-modal-hint">
+                  <AlertTriangle size={16} />
+                  <p>将选中的 {batchSelectedIds.size} 条配方状态更改为「已归档」，每条配方的时间线将记录此操作。</p>
+                </div>
+              )}
+              {batchAction === 'clearSchedule' && (
+                <div className="batch-modal-hint">
+                  <Info size={16} />
+                  <p>将清除选中配方的使用排期（开始/结束日期），每条配方的时间线将记录此操作。</p>
+                </div>
+              )}
+              {batchAction === 'setSchedule' && (
+                <div className="batch-schedule-form">
+                  <div className="schedule-form-grid">
+                    <label>
+                      <span>开始日期</span>
+                      <input
+                        type="date"
+                        value={batchScheduleForm.startDate}
+                        onChange={(e) => setBatchScheduleForm({ ...batchScheduleForm, startDate: e.target.value })}
+                      />
+                    </label>
+                    <label>
+                      <span>结束日期（可选）</span>
+                      <input
+                        type="date"
+                        value={batchScheduleForm.endDate}
+                        onChange={(e) => setBatchScheduleForm({ ...batchScheduleForm, endDate: e.target.value })}
+                      />
+                    </label>
+                  </div>
+                  <p className="schedule-hint">
+                    <Layers size={12} />
+                    为选中的 {batchSelectedIds.size} 条配方统一设置使用周期，每条配方的时间线将记录此操作。
+                  </p>
+                </div>
+              )}
+            </div>
+            <div className="modal-footer">
+              <button type="button" className="ghost" onClick={() => { setBatchModalOpen(false); setBatchAction(null); }}>
+                取消
+              </button>
+              <button
+                type="button"
+                className="primary"
+                onClick={executeBatchAction}
+                disabled={batchAction === 'setSchedule' && !batchScheduleForm.startDate}
+              >
+                确认执行
               </button>
             </div>
           </div>

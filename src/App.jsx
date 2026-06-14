@@ -261,6 +261,12 @@ function App() {
   const [cmpLeft, setCmpLeft] = useState('');
   const [cmpRight, setCmpRight] = useState('');
 
+  const [crossCmpMode, setCrossCmpMode] = useState(false);
+  const [crossCmpGhLeft, setCrossCmpGhLeft] = useState('');
+  const [crossCmpGhRight, setCrossCmpGhRight] = useState('');
+  const [crossCmpCrop, setCrossCmpCrop] = useState('全部');
+  const [crossCmpStage, setCrossCmpStage] = useState('全部');
+
   const [boardFilter, setBoardFilter] = useState({ crop: null, stage: null });
   const [warningFilter, setWarningFilter] = useState({ crop: '全部', severity: '全部' });
 
@@ -1052,6 +1058,133 @@ function App() {
       rightCount: rightUnique.length,
     };
   }, [cmpLeftRecord, cmpRightRecord]);
+
+  const crossCmpLeftGhData = useMemo(() => {
+    if (!crossCmpGhLeft) return null;
+    return getGreenhouseData(ghState, crossCmpGhLeft);
+  }, [ghState, crossCmpGhLeft]);
+
+  const crossCmpRightGhData = useMemo(() => {
+    if (!crossCmpGhRight) return null;
+    return getGreenhouseData(ghState, crossCmpGhRight);
+  }, [ghState, crossCmpGhRight]);
+
+  const crossCmpLeftGreenhouse = useMemo(() => {
+    return ghState.greenhouses[crossCmpGhLeft] || null;
+  }, [ghState, crossCmpGhLeft]);
+
+  const crossCmpRightGreenhouse = useMemo(() => {
+    return ghState.greenhouses[crossCmpGhRight] || null;
+  }, [ghState, crossCmpGhRight]);
+
+  const crossCmpAllCropOptions = useMemo(() => {
+    const crops = new Set();
+    if (crossCmpLeftGhData?.records) {
+      crossCmpLeftGhData.records.forEach((r) => crops.add(r.crop));
+    }
+    if (crossCmpRightGhData?.records) {
+      crossCmpRightGhData.records.forEach((r) => crops.add(r.crop));
+    }
+    return [...crops].sort();
+  }, [crossCmpLeftGhData, crossCmpRightGhData]);
+
+  const crossCmpStageOptions = useMemo(() => {
+    const stages = new Set();
+    const leftRecords = crossCmpLeftGhData?.records || [];
+    const rightRecords = crossCmpRightGhData?.records || [];
+    [...leftRecords, ...rightRecords].forEach((r) => {
+      if (crossCmpCrop === '全部' || r.crop === crossCmpCrop) {
+        stages.add(r.stage);
+      }
+    });
+    return [...stages].sort();
+  }, [crossCmpLeftGhData, crossCmpRightGhData, crossCmpCrop]);
+
+  function getInUseRecipes(records, crop, stage) {
+    return records
+      .filter((r) => {
+        if (crop !== '全部' && r.crop !== crop) return false;
+        if (stage !== '全部' && r.stage !== stage) return false;
+        if (r.status !== '使用中') return false;
+        return true;
+      })
+      .sort((a, b) => (b.version || 0) - (a.version || 0));
+  }
+
+  const crossCmpLeftInUse = useMemo(() => {
+    if (!crossCmpLeftGhData?.records) return [];
+    return getInUseRecipes(crossCmpLeftGhData.records, crossCmpCrop, crossCmpStage);
+  }, [crossCmpLeftGhData, crossCmpCrop, crossCmpStage]);
+
+  const crossCmpRightInUse = useMemo(() => {
+    if (!crossCmpRightGhData?.records) return [];
+    return getInUseRecipes(crossCmpRightGhData.records, crossCmpCrop, crossCmpStage);
+  }, [crossCmpRightGhData, crossCmpCrop, crossCmpStage]);
+
+  const crossCmpPairs = useMemo(() => {
+    const pairs = [];
+    const keys = new Set();
+    const leftMap = {};
+    const rightMap = {};
+
+    crossCmpLeftInUse.forEach((r) => {
+      const key = `${r.crop}||${r.stage}`;
+      keys.add(key);
+      leftMap[key] = r;
+    });
+
+    crossCmpRightInUse.forEach((r) => {
+      const key = `${r.crop}||${r.stage}`;
+      keys.add(key);
+      rightMap[key] = r;
+    });
+
+    [...keys].sort().forEach((key) => {
+      const [crop, stage] = key.split('||');
+      pairs.push({
+        key,
+        crop,
+        stage,
+        left: leftMap[key] || null,
+        right: rightMap[key] || null,
+      });
+    });
+
+    return pairs;
+  }, [crossCmpLeftInUse, crossCmpRightInUse]);
+
+  function getRecipeTrialForGh(recipeId, trials) {
+    return trials?.find((t) => t.recipeId === recipeId) || null;
+  }
+
+  function hasTrialSource(recipe, trials) {
+    if (!recipe || !trials) return false;
+    if (recipe.fromTrialId) {
+      return trials.some((t) => t.id === recipe.fromTrialId);
+    }
+    return trials.some((t) => t.recipeId === recipe.id);
+  }
+
+  function getRecipeDiff(left, right) {
+    if (!left || !right) return null;
+    const diffFields = [];
+    const fields = [
+      { key: 'version', label: '版本' },
+      { key: 'ec', label: 'EC' },
+      { key: 'ph', label: 'pH' },
+      { key: 'npk', label: 'NPK' },
+      { key: 'memo', label: '备注' },
+      { key: 'status', label: '状态' },
+    ];
+    fields.forEach((f) => {
+      const leftVal = String(left[f.key] || '');
+      const rightVal = String(right[f.key] || '');
+      if (leftVal !== rightVal) {
+        diffFields.push(f.key);
+      }
+    });
+    return diffFields;
+  }
 
   const filteredRecords = useMemo(() => {
     return records
@@ -2238,6 +2371,246 @@ function App() {
                   )}
                 </div>
               </div>
+            </div>
+          )}
+        </div>
+      </section>
+
+      <section className="cmp-section cross-cmp-section">
+        <div className="panel">
+          <div className="panel-title">
+            <Building2 size={18} />
+            <h2>跨温室配方对比</h2>
+            <span className="cross-cmp-subtitle">对比两个温室的「使用中」配方差异</span>
+          </div>
+
+          <div className="cross-cmp-gh-selector">
+            <div className="cross-cmp-gh-col">
+              <label>
+                <span>温室 A</span>
+                <select
+                  value={crossCmpGhLeft}
+                  onChange={(e) => { setCrossCmpGhLeft(e.target.value); }}
+                >
+                  <option value="">请选择温室</option>
+                  {greenhouses.map((gh) => (
+                    <option key={gh.id} value={gh.id}>{gh.name}</option>
+                  ))}
+                </select>
+              </label>
+              {crossCmpLeftGreenhouse && (
+                <span className="cross-cmp-gh-meta">
+                  {ghState.data[crossCmpGhLeft]?.records?.length || 0} 条配方 · {crossCmpLeftInUse.length} 个使用中
+                </span>
+              )}
+            </div>
+            <span className="cross-cmp-vs">VS</span>
+            <div className="cross-cmp-gh-col">
+              <label>
+                <span>温室 B</span>
+                <select
+                  value={crossCmpGhRight}
+                  onChange={(e) => { setCrossCmpGhRight(e.target.value); }}
+                >
+                  <option value="">请选择温室</option>
+                  {greenhouses.map((gh) => (
+                    <option key={gh.id} value={gh.id}>{gh.name}</option>
+                  ))}
+                </select>
+              </label>
+              {crossCmpRightGreenhouse && (
+                <span className="cross-cmp-gh-meta">
+                  {ghState.data[crossCmpGhRight]?.records?.length || 0} 条配方 · {crossCmpRightInUse.length} 个使用中
+                </span>
+              )}
+            </div>
+          </div>
+
+          {crossCmpGhLeft && crossCmpGhRight ? (
+            <>
+              <div className="cmp-toolbar cross-cmp-toolbar">
+                <label>
+                  <span>作物</span>
+                  <select
+                    value={crossCmpCrop}
+                    onChange={(e) => { setCrossCmpCrop(e.target.value); setCrossCmpStage('全部'); }}
+                  >
+                    <option>全部</option>
+                    {crossCmpAllCropOptions.map((c) => <option key={c}>{c}</option>)}
+                  </select>
+                </label>
+                <label>
+                  <span>生长期</span>
+                  <select
+                    value={crossCmpStage}
+                    onChange={(e) => setCrossCmpStage(e.target.value)}
+                  >
+                    <option>全部</option>
+                    {crossCmpStageOptions.map((s) => <option key={s}>{s}</option>)}
+                  </select>
+                </label>
+                <span className="cmp-count">
+                  共 {crossCmpPairs.length} 组使用中配方
+                </span>
+              </div>
+
+              {crossCmpPairs.length === 0 ? (
+                <div className="cmp-group-hint">
+                  <Info size={20} />
+                  <p>当前筛选条件下，两个温室均无「使用中」状态的配方。</p>
+                </div>
+              ) : (
+                <div className="cross-cmp-list">
+                  {crossCmpPairs.map((pair) => {
+                    const diffs = getRecipeDiff(pair.left, pair.right);
+                    const leftHasTrial = hasTrialSource(pair.left, crossCmpLeftGhData?.trials);
+                    const rightHasTrial = hasTrialSource(pair.right, crossCmpRightGhData?.trials);
+                    const hasDiff = diffs && diffs.length > 0;
+                    const leftOnly = !pair.right;
+                    const rightOnly = !pair.left;
+
+                    return (
+                      <div
+                        key={pair.key}
+                        className={'cross-cmp-card ' + (hasDiff ? 'cross-cmp-card-diff' : '') + (leftOnly || rightOnly ? ' cross-cmp-card-missing' : '')}
+                      >
+                        <div className="cross-cmp-card-head">
+                          <div className="cross-cmp-card-title">
+                            <strong>{pair.crop}</strong>
+                            <span className="cross-cmp-stage-tag">{pair.stage}</span>
+                            {hasDiff && <span className="cmp-badge">有差异</span>}
+                            {leftOnly && <span className="cmp-badge cmp-badge-warn">仅温室 A</span>}
+                            {rightOnly && <span className="cmp-badge cmp-badge-warn">仅温室 B</span>}
+                          </div>
+                        </div>
+
+                        <div className="cross-cmp-card-body">
+                          <div className={'cross-cmp-recipe-col ' + (leftOnly ? 'cross-cmp-col-only' : '')}>
+                            <div className="cross-cmp-col-head">
+                              <span className="cross-cmp-col-label">温室 A · {crossCmpLeftGreenhouse?.name || '?'}</span>
+                              {leftHasTrial && (
+                                <span className="cross-cmp-trial-tag">
+                                  <FlaskConical size={12} />
+                                  有试验来源
+                                </span>
+                              )}
+                            </div>
+                            {pair.left ? (
+                              <>
+                                <div className="cross-cmp-params">
+                                  <div className={'cross-cmp-param ' + (diffs?.includes('version') ? 'cross-cmp-param-diff' : '')}>
+                                    <span className="cross-cmp-param-label">版本</span>
+                                    <strong>v{pair.left.version || '?'}</strong>
+                                  </div>
+                                  <div className={'cross-cmp-param ' + (diffs?.includes('ec') ? 'cross-cmp-param-diff' : '')}>
+                                    <span className="cross-cmp-param-label">EC</span>
+                                    <strong>{pair.left.ec}</strong>
+                                  </div>
+                                  <div className={'cross-cmp-param ' + (diffs?.includes('ph') ? 'cross-cmp-param-diff' : '')}>
+                                    <span className="cross-cmp-param-label">pH</span>
+                                    <strong>{pair.left.ph}</strong>
+                                  </div>
+                                  <div className={'cross-cmp-param ' + (diffs?.includes('npk') ? 'cross-cmp-param-diff' : '')}>
+                                    <span className="cross-cmp-param-label">NPK</span>
+                                    <strong>{pair.left.npk}</strong>
+                                  </div>
+                                </div>
+                                {pair.left.memo && (
+                                  <div className={'cross-cmp-memo ' + (diffs?.includes('memo') ? 'cross-cmp-memo-diff' : '')}>
+                                    <span className="cross-cmp-memo-label">备注</span>
+                                    <p>{pair.left.memo}</p>
+                                  </div>
+                                )}
+                                {(pair.left.timeline || []).length > 0 && (
+                                  <div className="cross-cmp-timeline">
+                                    <span className="cross-cmp-timeline-label">最近状态</span>
+                                    <div className="cross-cmp-timeline-list">
+                                      {(pair.left.timeline || []).slice(-3).reverse().map((step, i) => (
+                                        <span key={i} className="cross-cmp-timeline-step">
+                                          {step.at} · {step.status} · {step.by}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                              </>
+                            ) : (
+                              <div className="cross-cmp-empty">
+                                <span>该温室暂无使用中配方</span>
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="cross-cmp-col-divider">
+                            {hasDiff ? <span className="cross-cmp-diff-icon">≠</span> : <span className="cross-cmp-same-icon">=</span>}
+                          </div>
+
+                          <div className={'cross-cmp-recipe-col ' + (rightOnly ? 'cross-cmp-col-only' : '')}>
+                            <div className="cross-cmp-col-head">
+                              <span className="cross-cmp-col-label">温室 B · {crossCmpRightGreenhouse?.name || '?'}</span>
+                              {rightHasTrial && (
+                                <span className="cross-cmp-trial-tag">
+                                  <FlaskConical size={12} />
+                                  有试验来源
+                                </span>
+                              )}
+                            </div>
+                            {pair.right ? (
+                              <>
+                                <div className="cross-cmp-params">
+                                  <div className={'cross-cmp-param ' + (diffs?.includes('version') ? 'cross-cmp-param-diff' : '')}>
+                                    <span className="cross-cmp-param-label">版本</span>
+                                    <strong>v{pair.right.version || '?'}</strong>
+                                  </div>
+                                  <div className={'cross-cmp-param ' + (diffs?.includes('ec') ? 'cross-cmp-param-diff' : '')}>
+                                    <span className="cross-cmp-param-label">EC</span>
+                                    <strong>{pair.right.ec}</strong>
+                                  </div>
+                                  <div className={'cross-cmp-param ' + (diffs?.includes('ph') ? 'cross-cmp-param-diff' : '')}>
+                                    <span className="cross-cmp-param-label">pH</span>
+                                    <strong>{pair.right.ph}</strong>
+                                  </div>
+                                  <div className={'cross-cmp-param ' + (diffs?.includes('npk') ? 'cross-cmp-param-diff' : '')}>
+                                    <span className="cross-cmp-param-label">NPK</span>
+                                    <strong>{pair.right.npk}</strong>
+                                  </div>
+                                </div>
+                                {pair.right.memo && (
+                                  <div className={'cross-cmp-memo ' + (diffs?.includes('memo') ? 'cross-cmp-memo-diff' : '')}>
+                                    <span className="cross-cmp-memo-label">备注</span>
+                                    <p>{pair.right.memo}</p>
+                                  </div>
+                                )}
+                                {(pair.right.timeline || []).length > 0 && (
+                                  <div className="cross-cmp-timeline">
+                                    <span className="cross-cmp-timeline-label">最近状态</span>
+                                    <div className="cross-cmp-timeline-list">
+                                      {(pair.right.timeline || []).slice(-3).reverse().map((step, i) => (
+                                        <span key={i} className="cross-cmp-timeline-step">
+                                          {step.at} · {step.status} · {step.by}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                              </>
+                            ) : (
+                              <div className="cross-cmp-empty">
+                                <span>该温室暂无使用中配方</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="cmp-group-hint">
+              <Info size={20} />
+              <p>请选择两个<strong>温室</strong>进行跨温室配方对比，系统将自动对比各温室「使用中」的配方差异。</p>
             </div>
           )}
         </div>

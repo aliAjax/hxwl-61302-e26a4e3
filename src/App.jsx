@@ -720,15 +720,14 @@ function App() {
       );
     }
 
-    persist(ensureVersions(nextRecords));
-
     const nextTrials = trials.map((t) => t.id === trialId ? {
       ...t,
       status: '已采用',
       adoptedRecipeId: adoptedRecipe.id,
       timeline: [...(t.timeline || []), { status: '已采用', at: today, by: `生成正式配方 v${nextVer}` }]
     } : t);
-    persistTrials(nextTrials);
+
+    persistAll(ensureVersions(nextRecords), adjRecords, nextTrials, observations);
 
     if (selectedTrial?.id === trialId) {
       setSelectedTrial(nextTrials.find((t) => t.id === trialId));
@@ -822,10 +821,7 @@ function App() {
 
     const finalRecords = ensureVersions(merged.records);
 
-    persist(finalRecords);
-    persistAdj(merged.adjRecords);
-    persistTrials(merged.trials);
-    persistObservations(merged.observations);
+    persistAll(finalRecords, merged.adjRecords, merged.trials, merged.observations);
 
     setImportModalOpen(false);
     setImportPreview(null);

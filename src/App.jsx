@@ -261,7 +261,6 @@ function App() {
   const [cmpLeft, setCmpLeft] = useState('');
   const [cmpRight, setCmpRight] = useState('');
 
-  const [crossCmpMode, setCrossCmpMode] = useState(false);
   const [crossCmpGhLeft, setCrossCmpGhLeft] = useState('');
   const [crossCmpGhRight, setCrossCmpGhRight] = useState('');
   const [crossCmpCrop, setCrossCmpCrop] = useState('全部');
@@ -1152,10 +1151,6 @@ function App() {
 
     return pairs;
   }, [crossCmpLeftInUse, crossCmpRightInUse]);
-
-  function getRecipeTrialForGh(recipeId, trials) {
-    return trials?.find((t) => t.recipeId === recipeId) || null;
-  }
 
   function hasTrialSource(recipe, trials) {
     if (!recipe || !trials) return false;

@@ -3657,3 +3657,324 @@ textarea { min-height: 76px; resize: vertical; }
     grid-template-columns: 1fr;
   }
 }
+
+.greenhouse-switcher {
+  margin-top: 18px;
+  display: grid;
+  gap: 10px;
+}
+
+.gh-switcher-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #475467;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.gh-switcher-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.gh-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1.5px solid #d0d5dd;
+  background: #ffffff;
+  border-radius: 999px;
+  color: #344054;
+  font-size: 13px;
+  font-weight: 600;
+  transition: all 0.15s;
+}
+
+.gh-tab:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: #f0fdf4;
+}
+
+.gh-tab-active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(21, 128, 61, 0.2);
+}
+
+.gh-tab-active:hover {
+  background: #166534;
+  color: #ffffff;
+}
+
+.gh-tab-name {
+  font-weight: 700;
+}
+
+.gh-tab-count {
+  background: rgba(0, 0, 0, 0.08);
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.gh-tab-active .gh-tab-count {
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+}
+
+.gh-tab-manage {
+  border-style: dashed;
+  color: #6b7280;
+}
+
+.gh-tab-manage:hover {
+  border-color: #6366f1;
+  background: #eef2ff;
+  color: #3730a3;
+}
+
+.gh-manager-modal,
+.copy-recipe-modal {
+  max-width: 640px;
+}
+
+.gh-create-row {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 16px;
+  align-items: end;
+}
+
+.gh-create-row input {
+  flex: 1;
+}
+
+.gh-list {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.gh-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 10px;
+  background: #ffffff;
+  transition: all 0.15s;
+}
+
+.gh-list-item-active {
+  border-color: var(--accent);
+  background: #f0fdf4;
+}
+
+.gh-list-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+}
+
+.gh-list-info svg {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.gh-list-detail {
+  display: grid;
+  gap: 2px;
+}
+
+.gh-list-detail strong {
+  font-size: 15px;
+  color: #111827;
+}
+
+.gh-list-detail span {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.gh-active-tag {
+  padding: 3px 10px;
+  background: var(--accent);
+  color: #ffffff;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.gh-migrated-tag {
+  padding: 3px 10px;
+  background: #eef2ff;
+  color: #3730a3;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.gh-list-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.gh-list-actions .ghost,
+.gh-list-actions .ghost-danger {
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.gh-rename-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.gh-rename-row input {
+  flex: 1;
+}
+
+.gh-rename-row .ghost {
+  padding: 8px 12px;
+  font-size: 12px;
+  margin-top: 0;
+  width: auto;
+}
+
+.gh-hint {
+  display: flex;
+  gap: 8px;
+  padding: 12px 14px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  color: #166534;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.gh-hint svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--accent);
+}
+
+.gh-hint p {
+  margin: 0;
+  color: #14532d;
+}
+
+.copy-recipe-info {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 12px;
+  align-items: stretch;
+  margin-bottom: 16px;
+  padding: 16px;
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+}
+
+.copy-recipe-source,
+.copy-recipe-target {
+  display: grid;
+  gap: 8px;
+}
+
+.copy-recipe-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #6b7280;
+}
+
+.copy-recipe-detail {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+}
+
+.copy-recipe-detail strong {
+  font-size: 15px;
+  color: #111827;
+}
+
+.copy-recipe-detail span {
+  font-size: 12px;
+  color: #475467;
+  font-weight: 600;
+}
+
+.copy-recipe-detail em {
+  font-size: 12px;
+  color: #6b7280;
+  font-style: italic;
+  line-height: 1.5;
+}
+
+.copy-recipe-arrow {
+  display: grid;
+  place-items: center;
+  color: #9ca3af;
+}
+
+.copy-recipe-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+}
+
+.copy-recipe-status span:last-child {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+@media (max-width: 620px) {
+  .gh-create-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .gh-create-row .primary {
+    width: 100% !important;
+  }
+  .gh-list-item {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .gh-list-actions {
+    justify-content: flex-end;
+  }
+  .copy-recipe-info {
+    grid-template-columns: 1fr;
+  }
+  .copy-recipe-arrow {
+    transform: rotate(90deg);
+  }
+  .gh-switcher-tabs {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    padding-bottom: 4px;
+  }
+  .gh-tab {
+    flex-shrink: 0;
+  }
+}

@@ -1,5 +1,5 @@
-import { Fragment, useMemo, useState, useRef } from 'react';
-import { Sprout, Plus, Search, Trash2, RotateCcw, CheckCircle2, AlertTriangle, ClipboardList, CalendarDays, BookOpen, ChevronDown, ChevronUp, ArrowRight, FileText, Calculator, Droplets, Beaker, Scale, Info, RefreshCw, GitCompareArrows, Grid3X3, Flower2, X, Layers, Archive, ShieldAlert, TrendingDown, TrendingUp, Copy, Download, Upload, Database, HardDriveUpload, HardDriveDownload, Calendar, FlaskConical, Leaf, Eye, CheckCircle, History, LeafyGreen, Bug, Activity } from 'lucide-react';
+import { Fragment, useMemo, useState, useRef, useEffect } from 'react';
+import { Sprout, Plus, Search, Trash2, RotateCcw, CheckCircle2, AlertTriangle, ClipboardList, CalendarDays, BookOpen, ChevronDown, ChevronUp, ArrowRight, FileText, Calculator, Droplets, Beaker, Scale, Info, RefreshCw, GitCompareArrows, Grid3X3, Flower2, X, Layers, Archive, ShieldAlert, TrendingDown, TrendingUp, Copy, Download, Upload, Database, HardDriveUpload, HardDriveDownload, Calendar, FlaskConical, Leaf, Eye, CheckCircle, History, LeafyGreen, Bug, Activity, Building2, Settings, Pencil, ChevronRight } from 'lucide-react';
 import './App.css';
 import { recipeTemplates, cropOptions, cropStageRanges } from './recipeTemplates';
 import RecipeCalendar from './RecipeCalendar';
@@ -11,6 +11,19 @@ import {
   validateImportData,
   mergeImportedData,
 } from './dataImportExport';
+import {
+  loadMultiGreenhouseState,
+  saveMultiGreenhouseState,
+  createGreenhouse,
+  renameGreenhouse,
+  deleteGreenhouse,
+  setActiveGreenhouse,
+  getGreenhouseData,
+  saveGreenhouseData,
+  copyRecipeToGreenhouse,
+  createEmptyGreenhouseData,
+  ensureVersions
+} from './greenhouseManager';
 
 const appConfig = {
   "id": "hxwl-61302",
@@ -155,83 +168,15 @@ function uid() {
   return Math.random().toString(36).slice(2, 10);
 }
 
-function ensureVersions(items) {
-  const groups = {};
-  items.forEach((item) => {
-    const key = `${item.crop}||${item.stage}`;
-    (groups[key] ||= []).push(item);
-  });
-  Object.values(groups).forEach((group) => {
-    const used = new Set(group.filter((g) => g.version).map((g) => g.version));
-    let next = 1;
-    group.forEach((item) => {
-      if (item.version) return;
-      while (used.has(next)) next++;
-      item.version = next;
-      used.add(next);
-      next++;
-    });
-  });
-  return items;
-}
-
 function withIds(items) {
   return ensureVersions(items.map((item) => ({ id: uid(), timeline: item.timeline || [{ status: item.status, at: today, by: '系统' }], ...item })));
 }
 
-function loadRecords() {
-  const raw = localStorage.getItem(appConfig.storage);
-  if (raw) {
-    try {
-      return ensureVersions(JSON.parse(raw));
-    } catch {
-      return withIds(appConfig.seed);
-    }
-  }
+function loadLegacySeed() {
   return withIds(appConfig.seed);
 }
 
-const adjStorageKey = appConfig.storage + '-adj';
-const trialStorageKey = appConfig.storage + '-trials';
-const obsStorageKey = appConfig.storage + '-obs';
-
 const TRIAL_STATUSES = ['试配中', '观察中', '已采用', '已归档'];
-
-function loadAdjRecords() {
-  const raw = localStorage.getItem(adjStorageKey);
-  if (raw) {
-    try {
-      return JSON.parse(raw);
-    } catch {
-      return [];
-    }
-  }
-  return [];
-}
-
-function loadTrials() {
-  const raw = localStorage.getItem(trialStorageKey);
-  if (raw) {
-    try {
-      return JSON.parse(raw);
-    } catch {
-      return [];
-    }
-  }
-  return [];
-}
-
-function loadObservations() {
-  const raw = localStorage.getItem(obsStorageKey);
-  if (raw) {
-    try {
-      return JSON.parse(raw);
-    } catch {
-      return [];
-    }
-  }
-  return [];
-}
 
 const LEAF_COLOR_OPTIONS = ['浓绿', '翠绿', '浅绿', '黄绿', '黄化', '紫红叶', '白化'];
 const GROWTH_OPTIONS = ['健壮旺盛', '生长正常', '长势偏弱', '徒长', '僵苗'];
@@ -281,13 +226,20 @@ function statusClass(status) {
 }
 
 function App() {
-  const [records, setRecords] = useState(loadRecords);
+  const [ghState, setGhState] = useState(loadMultiGreenhouseState);
+  const activeGhId = ghState.activeGreenhouseId;
+  const activeGreenhouse = ghState.greenhouses[activeGhId];
+  const greenhouses = Object.values(ghState.greenhouses);
+
+  const ghData = useMemo(() => getGreenhouseData(ghState, activeGhId), [ghState, activeGhId]);
+
+  const [records, setRecords] = useState(ghData.records);
   const [form, setForm] = useState(appConfig.defaultValues);
   const [filters, setFilters] = useState({ query: '', status: '全部' });
   const [selected, setSelected] = useState(null);
   const [templateOpen, setTemplateOpen] = useState(true);
   const [templateCrop, setTemplateCrop] = useState('全部');
-  const [adjRecords, setAdjRecords] = useState(loadAdjRecords);
+  const [adjRecords, setAdjRecords] = useState(ghData.adjRecords);
   const [adjForm, setAdjForm] = useState({ sourceId: '', reason: '', adjustments: '', observations: '' });
   const [adjFilters, setAdjFilters] = useState({ crop: '全部', stage: '全部' });
   const [adjFormVisible, setAdjFormVisible] = useState(false);
@@ -319,8 +271,8 @@ function App() {
   const [importProcessing, setImportProcessing] = useState(false);
   const importFileInputRef = useRef(null);
 
-  const [trials, setTrials] = useState(loadTrials);
-  const [observations, setObservations] = useState(loadObservations);
+  const [trials, setTrials] = useState(ghData.trials);
+  const [observations, setObservations] = useState(ghData.observations);
   const [selectedTrial, setSelectedTrial] = useState(null);
   const [trialForm, setTrialForm] = useState({ recipeId: '', goal: '', initialMemo: '' });
   const [trialFormVisible, setTrialFormVisible] = useState(false);
@@ -333,7 +285,106 @@ function App() {
   const [adoptModalOpen, setAdoptModalOpen] = useState(false);
   const [adoptTrialId, setAdoptTrialId] = useState(null);
 
+  const [ghManagerOpen, setGhManagerOpen] = useState(false);
+  const [ghRenameId, setGhRenameId] = useState(null);
+  const [ghRenameName, setGhRenameName] = useState('');
+  const [ghNewName, setGhNewName] = useState('');
+  const [copyRecipeModalOpen, setCopyRecipeModalOpen] = useState(false);
+  const [copyRecipeTarget, setCopyRecipeTarget] = useState(null);
+  const [copyTargetGhId, setCopyTargetGhId] = useState('');
+
   const boardStages = ['育苗期', '营养生长期', '开花期', '结果期'];
+
+  useEffect(() => {
+    setRecords(ghData.records);
+    setAdjRecords(ghData.adjRecords);
+    setTrials(ghData.trials);
+    setObservations(ghData.observations);
+    setSelected(null);
+    setSelectedTrial(null);
+    setBoardFilter({ crop: null, stage: null });
+    setFilters({ query: '', status: '全部' });
+  }, [ghData]);
+
+  function persistAll(nextRecords, nextAdj, nextTrials, nextObs) {
+    const finalRecords = ensureVersions(nextRecords || records);
+    const data = {
+      records: finalRecords,
+      adjRecords: nextAdj || adjRecords,
+      trials: nextTrials || trials,
+      observations: nextObs || observations
+    };
+    setRecords(data.records);
+    setAdjRecords(data.adjRecords);
+    setTrials(data.trials);
+    setObservations(data.observations);
+    const nextState = saveGreenhouseData(ghState, activeGhId, data);
+    setGhState(nextState);
+  }
+
+  function persist(next) {
+    persistAll(next, adjRecords, trials, observations);
+  }
+
+  function persistAdj(next) {
+    persistAll(records, next, trials, observations);
+  }
+
+  function persistTrials(next) {
+    persistAll(records, adjRecords, next, observations);
+  }
+
+  function persistObservations(next) {
+    persistAll(records, adjRecords, trials, next);
+  }
+
+  function handleSwitchGreenhouse(ghId) {
+    if (ghId === activeGhId) return;
+    const nextState = setActiveGreenhouse(ghId);
+    setGhState(nextState);
+  }
+
+  function handleCreateGreenhouse() {
+    const name = ghNewName.trim() || `温室 ${greenhouses.length + 1} 号`;
+    const nextState = createGreenhouse(name);
+    setGhState(nextState);
+    setGhNewName('');
+  }
+
+  function handleRenameGreenhouse(ghId) {
+    const name = ghRenameName.trim();
+    if (!name) return;
+    const nextState = renameGreenhouse(ghId, name);
+    setGhState(nextState);
+    setGhRenameId(null);
+    setGhRenameName('');
+  }
+
+  function handleDeleteGreenhouse(ghId) {
+    if (greenhouses.length <= 1) return;
+    const gh = ghState.greenhouses[ghId];
+    if (!confirm(`确定要删除温室「${gh?.name}」吗？该温室的所有配方数据将被永久删除。`)) return;
+    const nextState = deleteGreenhouse(ghId);
+    setGhState(nextState);
+  }
+
+  function openCopyRecipeModal(recipe) {
+    setCopyRecipeTarget(recipe);
+    const otherGhs = greenhouses.filter((g) => g.id !== activeGhId);
+    setCopyTargetGhId(otherGhs.length > 0 ? otherGhs[0].id : '');
+    setCopyRecipeModalOpen(true);
+  }
+
+  function handleCopyRecipeToGreenhouse() {
+    if (!copyRecipeTarget || !copyTargetGhId) return;
+    const nextState = copyRecipeToGreenhouse(ghState, activeGhId, copyTargetGhId, copyRecipeTarget, '试配');
+    setGhState(nextState);
+    const targetGh = nextState.greenhouses[copyTargetGhId];
+    alert(`已将配方复制到温室「${targetGh?.name}」作为试配版本。`);
+    setCopyRecipeModalOpen(false);
+    setCopyRecipeTarget(null);
+    setCopyTargetGhId('');
+  }
 
   const boardData = useMemo(() => {
     const result = {};
@@ -432,11 +483,6 @@ function App() {
 
   function clearBoardFilter() {
     setBoardFilter({ crop: null, stage: null });
-  }
-
-  function persist(next) {
-    setRecords(next);
-    localStorage.setItem(appConfig.storage, JSON.stringify(next));
   }
 
   function applyTemplate(template) {
@@ -554,21 +600,6 @@ function App() {
     } : record);
     persist(next);
     setSelected(next.find((record) => record.id === item.id));
-  }
-
-  function persistAdj(next) {
-    setAdjRecords(next);
-    localStorage.setItem(adjStorageKey, JSON.stringify(next));
-  }
-
-  function persistTrials(next) {
-    setTrials(next);
-    localStorage.setItem(trialStorageKey, JSON.stringify(next));
-  }
-
-  function persistObservations(next) {
-    setObservations(next);
-    localStorage.setItem(obsStorageKey, JSON.stringify(next));
   }
 
   function trialStatusClass(status) {
@@ -993,6 +1024,38 @@ function App() {
           <div className="eyebrow"><Sprout size={18} />{appConfig.domain}</div>
           <h1>{appConfig.title}</h1>
           <p>{appConfig.subtitle}</p>
+          <div className="greenhouse-switcher">
+            <div className="gh-switcher-label">
+              <Building2 size={14} />
+              <span>当前温室</span>
+            </div>
+            <div className="gh-switcher-tabs">
+              {greenhouses.map((gh) => (
+                <button
+                  key={gh.id}
+                  type="button"
+                  className={'gh-tab ' + (gh.id === activeGhId ? 'gh-tab-active' : '')}
+                  onClick={() => handleSwitchGreenhouse(gh.id)}
+                  title={gh.name}
+                >
+                  <Building2 size={12} />
+                  <span className="gh-tab-name">{gh.name}</span>
+                  <span className="gh-tab-count">
+                    {ghState.data[gh.id]?.records?.length || 0} 配方
+                  </span>
+                </button>
+              ))}
+              <button
+                type="button"
+                className="gh-tab gh-tab-manage"
+                onClick={() => setGhManagerOpen(true)}
+                title="管理温室"
+              >
+                <Settings size={14} />
+                <span>管理</span>
+              </button>
+            </div>
+          </div>
         </div>
         <div className="hero-actions">
           <button type="button" className="hero-action-btn" onClick={handleExport}>
@@ -1201,6 +1264,12 @@ function App() {
                       <Copy size={14} />
                       <span>复制为试配版本</span>
                     </button>
+                    {greenhouses.length > 1 && (
+                      <button type="button" className="warning-copy-btn" style={{ borderColor: '#6366f1', background: '#eef2ff', color: '#3730a3' }} onClick={() => openCopyRecipeModal(w.record)}>
+                        <Building2 size={14} />
+                        <span>复制到其他温室</span>
+                      </button>
+                    )}
                     <button type="button" className="warning-locate-btn" onClick={() => setSelected(w.record)}>
                       <ArrowRight size={14} />
                       <span>定位到配方</span>
@@ -1328,6 +1397,7 @@ function App() {
                     <button key={status} type="button" onClick={() => updateStatus(item.id, status)}>{status}</button>
                   ))}
                   {appConfig.action === 'copyRecipe' && <button type="button" onClick={() => duplicateRecord(item)}><RotateCcw size={14} />复制</button>}
+                  {greenhouses.length > 1 && <button type="button" onClick={() => openCopyRecipeModal(item)}><Building2 size={14} />复制到温室</button>}
                   {appConfig.chart && <button type="button" onClick={() => addTemperature(item)}>加温度</button>}
                   <button className="ghost-danger" type="button" onClick={() => removeRecord(item.id)}><Trash2 size={14} /></button>
                 </div>
@@ -2528,6 +2598,169 @@ function App() {
                 </button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {ghManagerOpen && (
+        <div className="modal-overlay" onClick={() => { setGhManagerOpen(false); setGhRenameId(null); setGhRenameName(''); setGhNewName(''); }}>
+          <div className="modal gh-manager-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title">
+                <Building2 size={18} />
+                <h3>温室管理</h3>
+              </div>
+              <button type="button" className="modal-close" onClick={() => { setGhManagerOpen(false); setGhRenameId(null); setGhRenameName(''); setGhNewName(''); }}>
+                <X size={18} />
+              </button>
+            </div>
+            <div className="modal-body">
+              <div className="gh-create-row">
+                <input
+                  type="text"
+                  value={ghNewName}
+                  onChange={(e) => setGhNewName(e.target.value)}
+                  placeholder={`输入新温室名称，如：温室 ${greenhouses.length + 1} 号`}
+                />
+                <button type="button" className="primary" style={{ marginTop: 0, width: 'auto', padding: '10px 18px' }} onClick={handleCreateGreenhouse}>
+                  <Plus size={14} />
+                  新建温室
+                </button>
+              </div>
+
+              <div className="gh-list">
+                {greenhouses.map((gh) => {
+                  const data = ghState.data[gh.id] || createEmptyGreenhouseData();
+                  const isActive = gh.id === activeGhId;
+                  const isRenaming = ghRenameId === gh.id;
+                  return (
+                    <div key={gh.id} className={'gh-list-item ' + (isActive ? 'gh-list-item-active' : '')}>
+                      {isRenaming ? (
+                        <div className="gh-rename-row">
+                          <Building2 size={16} />
+                          <input
+                            type="text"
+                            value={ghRenameName}
+                            onChange={(e) => setGhRenameName(e.target.value)}
+                            placeholder="输入新名称"
+                            autoFocus
+                          />
+                          <button type="button" className="ghost" onClick={() => handleRenameGreenhouse(gh.id)}>
+                            <CheckCircle size={14} />确认
+                          </button>
+                          <button type="button" className="ghost" onClick={() => { setGhRenameId(null); setGhRenameName(''); }}>
+                            <X size={14} />取消
+                          </button>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="gh-list-info">
+                            <Building2 size={18} />
+                            <div className="gh-list-detail">
+                              <strong>{gh.name}</strong>
+                              <span>
+                                {data.records?.length || 0} 配方 · {data.trials?.length || 0} 试验 · {data.observations?.length || 0} 观察
+                              </span>
+                            </div>
+                            {isActive && <span className="gh-active-tag">当前</span>}
+                            {gh.migrated && <span className="gh-migrated-tag">已迁移</span>}
+                          </div>
+                          <div className="gh-list-actions">
+                            {!isActive && (
+                              <button type="button" className="ghost" onClick={() => handleSwitchGreenhouse(gh.id)}>
+                                <ChevronRight size={14} />切换
+                              </button>
+                            )}
+                            <button type="button" className="ghost" onClick={() => { setGhRenameId(gh.id); setGhRenameName(gh.name); }}>
+                              <Pencil size={14} />重命名
+                            </button>
+                            {greenhouses.length > 1 && gh.id !== 'gh-default' && (
+                              <button type="button" className="ghost-danger" onClick={() => handleDeleteGreenhouse(gh.id)}>
+                                <Trash2 size={14} />删除
+                              </button>
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="gh-hint">
+                <Info size={14} />
+                <p>每个温室拥有独立的配方、试验和观察数据。可将配方复制到其他温室作为试配版本。旧版单温室数据已自动迁移到「默认温室」，原始数据保留不删除。</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {copyRecipeModalOpen && copyRecipeTarget && (
+        <div className="modal-overlay" onClick={() => { setCopyRecipeModalOpen(false); setCopyRecipeTarget(null); setCopyTargetGhId(''); }}>
+          <div className="modal copy-recipe-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title">
+                <Copy size={18} />
+                <h3>复制配方到其他温室</h3>
+              </div>
+              <button type="button" className="modal-close" onClick={() => { setCopyRecipeModalOpen(false); setCopyRecipeTarget(null); setCopyTargetGhId(''); }}>
+                <X size={18} />
+              </button>
+            </div>
+            <div className="modal-body">
+              <div className="copy-recipe-info">
+                <div className="copy-recipe-source">
+                  <span className="copy-recipe-label">源配方</span>
+                  <div className="copy-recipe-detail">
+                    <strong>{copyRecipeTarget.crop} · {copyRecipeTarget.stage}</strong>
+                    <span>v{copyRecipeTarget.version || '?'} · EC {copyRecipeTarget.ec} · pH {copyRecipeTarget.ph} · NPK {copyRecipeTarget.npk}</span>
+                    <em>{copyRecipeTarget.memo}</em>
+                  </div>
+                </div>
+                <div className="copy-recipe-arrow">
+                  <ChevronRight size={20} />
+                </div>
+                <div className="copy-recipe-target">
+                  <span className="copy-recipe-label">复制后状态</span>
+                  <div className="copy-recipe-status">
+                    <span className="status status-a">试配</span>
+                    <span>自动生成新版本号</span>
+                  </div>
+                </div>
+              </div>
+
+              <label>
+                <span>选择目标温室</span>
+                <select value={copyTargetGhId} onChange={(e) => setCopyTargetGhId(e.target.value)}>
+                  <option value="">请选择温室</option>
+                  {greenhouses.filter((g) => g.id !== activeGhId).map((gh) => (
+                    <option key={gh.id} value={gh.id}>{gh.name}（{ghState.data[gh.id]?.records?.length || 0} 配方）</option>
+                  ))}
+                </select>
+              </label>
+
+              {greenhouses.filter((g) => g.id !== activeGhId).length === 0 && (
+                <div className="gh-hint">
+                  <AlertTriangle size={14} />
+                  <p>当前只有一个温室，请先在「温室管理」中新建其他温室。</p>
+                </div>
+              )}
+            </div>
+            <div className="modal-footer">
+              <button type="button" className="ghost" onClick={() => { setCopyRecipeModalOpen(false); setCopyRecipeTarget(null); setCopyTargetGhId(''); }}>
+                取消
+              </button>
+              <button
+                type="button"
+                className="primary"
+                onClick={handleCopyRecipeToGreenhouse}
+                disabled={!copyTargetGhId}
+              >
+                <Copy size={14} />
+                确认复制
+              </button>
+            </div>
           </div>
         </div>
       )}

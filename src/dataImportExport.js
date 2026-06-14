@@ -299,7 +299,7 @@ function validateFullBackupData(data, currentMultiGhState, appConfig) {
     errors: [],
     warnings: [],
     importType: EXPORT_TYPES.FULL_BACKUP,
-    availableModes: [IMPORT_MODES.OVERWRITE, IMPORT_MODES.NEW_GREENHOUSE, IMPORT_MODES.SPECIFIC_GREENHOUSE],
+    availableModes: [IMPORT_MODES.OVERWRITE, IMPORT_MODES.MERGE_CURRENT, IMPORT_MODES.NEW_GREENHOUSE, IMPORT_MODES.SPECIFIC_GREENHOUSE],
     preview: {
       sourceGreenhouses: [],
       sourceActiveGhId: null,

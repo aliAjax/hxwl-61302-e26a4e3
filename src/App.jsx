@@ -903,7 +903,7 @@ function App() {
     setImportError(null);
     setImportFileInfo(null);
     setImportMode(IMPORT_MODES.MERGE_CURRENT);
-    setImportTargetGhId('');
+    setImportTargetGhId(activeGhId);
     setImportSourceGhId('');
     setImportNewGhName('');
     if (importFileInputRef.current) {
@@ -917,7 +917,7 @@ function App() {
     const importType = importPreview.importType;
     const options = {
       appConfig,
-      targetGhId: importMode === IMPORT_MODES.SPECIFIC_GREENHOUSE ? importTargetGhId : activeGhId,
+      targetGhId: importMode === IMPORT_MODES.SPECIFIC_GREENHOUSE ? (importTargetGhId || activeGhId) : activeGhId,
       sourceGhId: importSourceGhId,
       newGreenhouseName: importNewGhName.trim() || undefined,
     };
@@ -956,7 +956,7 @@ function App() {
       successMessage += `试验记录：${ghData?.trials?.length || 0} 条\n`;
       successMessage += `观察记录：${ghData?.observations?.length || 0} 条`;
     } else {
-      const targetGhId = importMode === IMPORT_MODES.SPECIFIC_GREENHOUSE ? importTargetGhId : activeGhId;
+      const targetGhId = importMode === IMPORT_MODES.SPECIFIC_GREENHOUSE ? (importTargetGhId || activeGhId) : activeGhId;
       const targetGhName = ghState.greenhouses?.[targetGhId]?.name || '当前温室';
       successMessage = `已导入到温室「${targetGhName}」！\n\n`;
 

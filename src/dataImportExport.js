@@ -701,7 +701,7 @@ function applyImportMode(importMode, currentGhState, cleanData, importType, opti
         options.sourceGhId
       );
 
-    case IMPORT_MODES.NEW_GREENHOUSE:
+    case IMPORT_MODES.NEW_GREENHOUSE: {
       const { newState } = createNewGreenhouseFromImport(
         currentGhState,
         cleanData,
@@ -709,6 +709,7 @@ function applyImportMode(importMode, currentGhState, cleanData, importType, opti
         options.newGreenhouseName
       );
       return newState;
+    }
 
     default:
       return currentGhState;

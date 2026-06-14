@@ -1,21 +1,39 @@
 {
+  "name": "hxwl-61302",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 61302",
+    "start": "vite --host 0.0.0.0 --port 61302",
     "build": "tsc -b && vite build",
+    "build:only": "vite build",
     "preview": "vite preview --host 0.0.0.0 --port 61302",
+    "typecheck": "tsc -b --noEmit",
+    "lint": "eslint \"src/**/*.{js,jsx,ts,tsx}\" \"tests/**/*.{js,jsx,ts,tsx}\"",
+    "lint:fix": "eslint \"src/**/*.{js,jsx,ts,tsx}\" \"tests/**/*.{js,jsx,ts,tsx}\" --fix",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "ci": "npm run lint && npm run typecheck && npm run test && npm run build"
   },
   "dependencies": {
-    "@vitejs/plugin-react": "latest",
-    "vite": "latest",
-    "typescript": "latest",
-    "react": "latest",
-    "react-dom": "latest",
-    "lucide-react": "latest"
+    "@vitejs/plugin-react": "6.0.2",
+    "lucide-react": "1.18.0",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "typescript": "6.0.3",
+    "vite": "8.0.16"
   },
   "devDependencies": {
-    "vitest": "latest",
-    "jsdom": "latest"
+    "@vitest/coverage-v8": "4.1.8",
+    "eslint": "9.34.0",
+    "eslint-plugin-react": "7.37.5",
+    "eslint-plugin-react-hooks": "5.2.0",
+    "jsdom": "29.1.1",
+    "vitest": "4.1.8"
+  },
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
   }
 }

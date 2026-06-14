@@ -1,0 +1,132 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master, develop]
+
+jobs:
+  quality-gate:
+    name: 工程质量门禁
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [22.x]
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          check-latest: false
+
+      - name: 配置 npm 缓存
+        uses: actions/cache@v4
+        id: npm-cache
+        with:
+          path: |
+            ~/.npm
+            node_modules
+          key: ${{ runner.os }}-node-${{ matrix.node-version }}-npm-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-${{ matrix.node-version }}-npm-
+            ${{ runner.os }}-node-
+
+      - name: 安装依赖
+        if: steps.npm-cache.outputs.cache-hit != 'true'
+        run: npm ci
+        env:
+          CI: true
+
+      - name: 验证依赖安装
+        run: |
+          echo "::group::已安装的核心依赖版本"
+          node -e "
+            const pkg = require('./package.json');
+            console.log('项目名称:', pkg.name);
+            console.log('Node 版本:', process.version);
+            console.log('--- 生产依赖 ---');
+            Object.entries(pkg.dependencies || {}).forEach(([k,v]) => console.log(k + ': ' + v));
+            console.log('--- 开发依赖 ---');
+            Object.entries(pkg.devDependencies || {}).forEach(([k,v]) => console.log(k + ': ' + v));
+          "
+          echo "::endgroup::"
+
+      - name: 运行 ESLint 代码检查
+        id: lint
+        run: |
+          echo "::group::ESLint 检查输出"
+          npm run lint 2>&1 || true
+          echo "::endgroup::"
+          npm run lint
+        continue-on-error: false
+
+      - name: 运行 TypeScript 类型检查
+        id: typecheck
+        run: |
+          echo "::group::TypeScript 类型检查输出"
+          npm run typecheck 2>&1 || true
+          echo "::endgroup::"
+          npm run typecheck
+        continue-on-error: false
+
+      - name: 运行单元测试
+        id: test
+        run: |
+          echo "::group::Vitest 测试输出"
+          npm run test 2>&1 || true
+          echo "::endgroup::"
+          npm run test
+        continue-on-error: false
+
+      - name: 运行前端构建
+        id: build
+        run: |
+          echo "::group::Vite 构建输出"
+          npm run build 2>&1 || true
+          echo "::endgroup::"
+          npm run build
+        continue-on-error: false
+
+      - name: 验证构建产物
+        if: success()
+        run: |
+          echo "::group::构建产物检查"
+          if [ -d "dist" ]; then
+            echo "dist 目录存在"
+            echo "文件清单："
+            find dist -type f | sort
+            echo ""
+            echo "文件总大小："
+            du -sh dist
+          else
+            echo "::error::dist 目录不存在，构建可能失败"
+            exit 1
+          fi
+          echo "::endgroup::"
+
+      - name: 质量门禁总结
+        if: always()
+        run: |
+          echo "## 质量门禁检查结果"
+          echo ""
+          echo "| 检查项 | 状态 |"
+          echo "|--------|------|"
+          echo "| ESLint 代码检查 | ${{ steps.lint.outcome == 'success' && '✅ 通过' || '❌ 失败' }} |"
+          echo "| TypeScript 类型检查 | ${{ steps.typecheck.outcome == 'success' && '✅ 通过' || '❌ 失败' }} |"
+          echo "| 单元测试 | ${{ steps.test.outcome == 'success' && '✅ 通过' || '❌ 失败' }} |"
+          echo "| 前端构建 | ${{ steps.build.outcome == 'success' && '✅ 通过' || '❌ 失败' }} |"
+          echo ""
+          if [ "${{ steps.lint.outcome }}" = "success" ] && \
+             [ "${{ steps.typecheck.outcome }}" = "success" ] && \
+             [ "${{ steps.test.outcome }}" = "success" ] && \
+             [ "${{ steps.build.outcome }}" = "success" ]; then
+            echo "🎉 **所有检查通过，质量门禁验证成功！**"
+          else
+            echo "⚠️ **部分检查未通过，请查看上方详细日志。**"
+          fi

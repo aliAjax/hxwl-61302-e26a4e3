@@ -96,7 +96,9 @@ function RecipeCalendar({ records, onSelectRecipe, onOpenSchedule, selectedRecor
 
   const scheduledRecipes = useMemo(() => {
     let result = records.filter(r => r.startDate);
-    if (statusFilter !== '全部') {
+    if (statusFilter === '全部') {
+      result = result.filter(r => r.status === '使用中' || r.status === '试配');
+    } else {
       result = result.filter(r => r.status === statusFilter);
     }
     if (cropFilter !== '全部') {

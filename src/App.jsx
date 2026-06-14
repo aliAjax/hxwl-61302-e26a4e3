@@ -668,14 +668,22 @@ function App() {
       memo: obsForm.memo,
       createdAt: new Date().toISOString()
     };
-    persistObservations([newObs, ...observations]);
+    const nextObservations = [newObs, ...observations];
+    const trial = trials.find((t) => t.id === obsForm.trialId);
+    let nextTrials = trials;
+    if (trial?.status === '试配中') {
+      nextTrials = trials.map((t) => t.id === trial.id ? {
+        ...t,
+        status: '观察中',
+        timeline: [...(t.timeline || []), { status: '观察中', at: today, by: '操作员' }]
+      } : t);
+      if (selectedTrial?.id === trial.id) {
+        setSelectedTrial(nextTrials.find((t) => t.id === trial.id));
+      }
+    }
+    persistAll(records, adjRecords, nextTrials, nextObservations);
     setObsForm({ trialId: '', date: today, leafColor: '', growth: '', rootSystem: '', yieldEstimate: '', anomaly: '', memo: '' });
     setObsFormVisible(false);
-
-    const trial = trials.find((t) => t.id === obsForm.trialId);
-    if (trial && trial.status === '试配中') {
-      updateTrialStatus(trial.id, '观察中');
-    }
   }
 
   function removeObservation(id) {

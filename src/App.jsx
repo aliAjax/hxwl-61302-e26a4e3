@@ -1,19 +1,11 @@
-import { Fragment, useMemo, useState, useRef, useEffect } from 'react';
+import { Fragment, useMemo, useState, useEffect } from 'react';
 import { Sprout, Plus, Search, Trash2, RotateCcw, CheckCircle2, AlertTriangle, ClipboardList, CalendarDays, BookOpen, ChevronDown, ChevronUp, ArrowRight, FileText, Calculator, Droplets, Beaker, Scale, Info, RefreshCw, GitCompareArrows, Grid3X3, Flower2, X, Layers, Archive, ShieldAlert, TrendingDown, TrendingUp, Copy, Download, Upload, Database, HardDriveUpload, HardDriveDownload, Calendar, FlaskConical, Leaf, Eye, CheckCircle, History, LeafyGreen, Bug, Activity, Building2, Settings, Pencil, ChevronRight, Save, CheckSquare, Square, Clock } from 'lucide-react';
 import './App.css';
 import { recipeTemplates, cropOptions, cropStageRanges, getAllTemplates, addCustomTemplate, deleteCustomTemplate, getAllCropOptions, loadCustomTemplates, saveCustomTemplates } from './recipeTemplates';
 import RecipeCalendar from './RecipeCalendar';
 import {
-  exportGreenhouseData,
-  exportFullBackup,
-  downloadJSON,
-  generateExportFilename,
-  parseImportFile,
-  validateImportData,
-  applyImportMode,
   EXPORT_TYPES,
   IMPORT_MODES,
-  detectImportType,
 } from './dataImportExport';
 import {
   loadMultiGreenhouseState,
@@ -28,6 +20,8 @@ import {
   createEmptyGreenhouseData,
   ensureVersions
 } from './greenhouseManager';
+import useBatchOperations from './useBatchOperations';
+import useImportExport from './useImportExport';
 
 const appConfig = {
   "id": "hxwl-61302",
@@ -273,19 +267,6 @@ function App() {
   const [boardFilter, setBoardFilter] = useState({ crop: null, stage: null });
   const [warningFilter, setWarningFilter] = useState({ crop: '全部', severity: '全部' });
 
-  const [importModalOpen, setImportModalOpen] = useState(false);
-  const [importPreview, setImportPreview] = useState(null);
-  const [importFileInfo, setImportFileInfo] = useState(null);
-  const [importError, setImportError] = useState(null);
-  const [importProcessing, setImportProcessing] = useState(false);
-  const [importMode, setImportMode] = useState(IMPORT_MODES.MERGE_CURRENT);
-  const [importTargetGhId, setImportTargetGhId] = useState('');
-  const [importSourceGhId, setImportSourceGhId] = useState('');
-  const [importNewGhName, setImportNewGhName] = useState('');
-  const [exportModalOpen, setExportModalOpen] = useState(false);
-  const [exportMode, setExportMode] = useState(EXPORT_TYPES.GREENHOUSE_DATA);
-  const importFileInputRef = useRef(null);
-
   const [trials, setTrials] = useState(ghData.trials);
   const [observations, setObservations] = useState(ghData.observations);
   const [selectedTrial, setSelectedTrial] = useState(null);
@@ -311,12 +292,6 @@ function App() {
   const [saveTemplateModalOpen, setSaveTemplateModalOpen] = useState(false);
   const [saveTemplateForm, setSaveTemplateForm] = useState({ name: '', crop: '', stage: '' });
   const [customTemplatesVersion, setCustomTemplatesVersion] = useState(0);
-
-  const [batchMode, setBatchMode] = useState(false);
-  const [batchSelectedIds, setBatchSelectedIds] = useState(new Set());
-  const [batchModalOpen, setBatchModalOpen] = useState(false);
-  const [batchAction, setBatchAction] = useState(null);
-  const [batchScheduleForm, setBatchScheduleForm] = useState({ startDate: '', endDate: '' });
 
   const boardStages = ['育苗期', '营养生长期', '开花期', '结果期'];
 
@@ -362,6 +337,23 @@ function App() {
   function persistObservations(next) {
     persistAll(records, adjRecords, trials, next);
   }
+
+  const batchOps = useBatchOperations(records, persist, selected, setSelected);
+
+  const importExport = useImportExport({
+    ghState,
+    setGhState,
+    activeGhId,
+    activeGreenhouse,
+    greenhouses,
+    records,
+    adjRecords,
+    trials,
+    observations,
+    appConfig,
+    ensureVersions,
+    setCustomTemplatesVersion,
+  });
 
   function handleSwitchGreenhouse(ghId) {
     if (ghId === activeGhId) return;
@@ -657,94 +649,6 @@ function App() {
     setScheduleFormOpen(true);
   }
 
-  function toggleBatchMode() {
-    setBatchMode(!batchMode);
-    setBatchSelectedIds(new Set());
-  }
-
-  function toggleBatchSelect(id) {
-    setBatchSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
-  }
-
-  function toggleBatchSelectAll(displayedIds) {
-    setBatchSelectedIds((prev) => {
-      const allSelected = displayedIds.every((id) => prev.has(id));
-      if (allSelected) {
-        return new Set();
-      }
-      return new Set(displayedIds);
-    });
-  }
-
-  function openBatchModal(action) {
-    if (batchSelectedIds.size === 0) return;
-    setBatchAction(action);
-    if (action === 'setSchedule') {
-      setBatchScheduleForm({ startDate: '', endDate: '' });
-    }
-    setBatchModalOpen(true);
-  }
-
-  function executeBatchAction() {
-    if (batchSelectedIds.size === 0 || !batchAction) return;
-    const ids = [...batchSelectedIds];
-    let next = records;
-
-    if (batchAction === 'archive') {
-      next = records.map((item) => {
-        if (!ids.includes(item.id)) return item;
-        if (item.status === '已归档') return item;
-        return {
-          ...item,
-          status: '已归档',
-          timeline: [...(item.timeline || []), { status: '已归档', at: today, by: '批量归档' }]
-        };
-      });
-    } else if (batchAction === 'clearSchedule') {
-      next = records.map((item) => {
-        if (!ids.includes(item.id)) return item;
-        if (!item.startDate && !item.endDate) return item;
-        return {
-          ...item,
-          startDate: undefined,
-          endDate: undefined,
-          timeline: [...(item.timeline || []), { status: item.status, at: today, by: '批量清除排期' }]
-        };
-      });
-    } else if (batchAction === 'setSchedule') {
-      const { startDate, endDate } = batchScheduleForm;
-      if (!startDate) return;
-      next = records.map((item) => {
-        if (!ids.includes(item.id)) return item;
-        return {
-          ...item,
-          startDate: startDate || undefined,
-          endDate: endDate || undefined,
-          timeline: [...(item.timeline || []), { status: item.status, at: today, by: `批量设置周期：${startDate}${endDate ? ' ~ ' + endDate : ''}` }]
-        };
-      });
-    }
-
-    persist(next);
-
-    if (selected && ids.includes(selected.id)) {
-      setSelected(next.find((item) => item.id === selected.id) || null);
-    }
-
-    setBatchModalOpen(false);
-    setBatchAction(null);
-    setBatchSelectedIds(new Set());
-    setBatchMode(false);
-  }
-
   function removeRecord(id) {
     const next = records.filter((item) => item.id !== id);
     persist(next);
@@ -949,165 +853,6 @@ function App() {
 
   function removeAdjRecord(id) {
     persistAdj(adjRecords.filter((r) => r.id !== id));
-  }
-
-  function handleExport() {
-    setExportMode(EXPORT_TYPES.GREENHOUSE_DATA);
-    setExportModalOpen(true);
-  }
-
-  function handleExportConfirm() {
-    let jsonStr, filename;
-    const greenhouseInfo = { id: activeGhId, name: activeGreenhouse?.name || '未知温室' };
-
-    if (exportMode === EXPORT_TYPES.FULL_BACKUP) {
-      const customTemplates = loadCustomTemplates();
-      jsonStr = exportFullBackup(ghState, appConfig, customTemplates);
-      filename = generateExportFilename(appConfig, EXPORT_TYPES.FULL_BACKUP);
-    } else {
-      jsonStr = exportGreenhouseData(records, adjRecords, appConfig, trials, observations, greenhouseInfo);
-      filename = generateExportFilename(appConfig, EXPORT_TYPES.GREENHOUSE_DATA, greenhouseInfo);
-    }
-
-    downloadJSON(jsonStr, filename);
-    setExportModalOpen(false);
-  }
-
-  function handleImportFileSelect(event) {
-    const file = event.target.files[0];
-    if (!file) return;
-
-    setImportFileInfo({
-      name: file.name,
-      size: file.size,
-      lastModified: file.lastModified,
-    });
-    setImportError(null);
-    setImportProcessing(true);
-
-    parseImportFile(file)
-      .then((data) => {
-        const importType = detectImportType(data);
-        const targetGhId = importTargetGhId || activeGhId;
-        const validation = validateImportData(data, records, adjRecords, appConfig, trials, observations, ghState, targetGhId);
-
-        if (importType === EXPORT_TYPES.FULL_BACKUP) {
-          setImportMode(IMPORT_MODES.OVERWRITE);
-          const firstGhId = Object.keys(validation.cleanData.data || {})[0];
-          setImportSourceGhId(validation.cleanData.activeGreenhouseId || firstGhId || '');
-        } else {
-          setImportMode(IMPORT_MODES.MERGE_CURRENT);
-        }
-
-        setImportPreview(validation);
-        setImportProcessing(false);
-      })
-      .catch((err) => {
-        setImportError(err.message);
-        setImportProcessing(false);
-        setImportPreview(null);
-      });
-  }
-
-  function triggerImportFileSelect() {
-    setImportModalOpen(true);
-    setImportPreview(null);
-    setImportError(null);
-    setImportFileInfo(null);
-    setImportMode(IMPORT_MODES.MERGE_CURRENT);
-    setImportTargetGhId(activeGhId);
-    setImportSourceGhId('');
-    setImportNewGhName('');
-    if (importFileInputRef.current) {
-      importFileInputRef.current.value = '';
-    }
-  }
-
-  function handleImportConfirm() {
-    if (!importPreview || !importPreview.valid) return;
-
-    const importType = importPreview.importType;
-    const options = {
-      appConfig,
-      targetGhId: importMode === IMPORT_MODES.SPECIFIC_GREENHOUSE ? (importTargetGhId || activeGhId) : activeGhId,
-      sourceGhId: importSourceGhId,
-      newGreenhouseName: importNewGhName.trim() || undefined,
-    };
-
-    const newState = applyImportMode(importMode, ghState, importPreview.cleanData, importType, options);
-
-    if (importMode === IMPORT_MODES.OVERWRITE && importPreview.cleanData.customTemplates) {
-      saveCustomTemplates(importPreview.cleanData.customTemplates);
-      setCustomTemplatesVersion((v) => v + 1);
-    }
-
-    Object.keys(newState.data || {}).forEach((ghId) => {
-      if (newState.data[ghId]?.records) {
-        newState.data[ghId].records = ensureVersions(newState.data[ghId].records);
-      }
-    });
-
-    saveMultiGreenhouseState(newState);
-    setGhState(newState);
-
-    let successMessage = '';
-    if (importMode === IMPORT_MODES.OVERWRITE) {
-      successMessage = `已覆盖整个应用数据！\n\n`;
-      const ghCount = Object.keys(newState.greenhouses || {}).length;
-      successMessage += `共导入 ${ghCount} 个温室\n`;
-      if (importPreview.preview.customTemplateCount > 0) {
-        successMessage += `自定义模板：${importPreview.preview.customTemplateCount} 个\n`;
-      }
-    } else if (importMode === IMPORT_MODES.NEW_GREENHOUSE) {
-      const newGhId = newState.activeGreenhouseId;
-      const newGhName = newState.greenhouses?.[newGhId]?.name || '新温室';
-      successMessage = `已新建温室「${newGhName}」并导入数据！\n\n`;
-      const ghData = newState.data?.[newGhId];
-      successMessage += `配方记录：${ghData?.records?.length || 0} 条\n`;
-      successMessage += `调整记录：${ghData?.adjRecords?.length || 0} 条\n`;
-      successMessage += `试验记录：${ghData?.trials?.length || 0} 条\n`;
-      successMessage += `观察记录：${ghData?.observations?.length || 0} 条`;
-    } else {
-      const targetGhId = importMode === IMPORT_MODES.SPECIFIC_GREENHOUSE ? (importTargetGhId || activeGhId) : activeGhId;
-      const targetGhName = ghState.greenhouses?.[targetGhId]?.name || '当前温室';
-      successMessage = `已导入到温室「${targetGhName}」！\n\n`;
-
-      const preview = importPreview.importType === EXPORT_TYPES.FULL_BACKUP && importSourceGhId
-        ? importPreview.preview.impactByGh?.[importSourceGhId]?.preview
-        : importPreview.preview;
-
-      if (preview) {
-        successMessage += `配方记录：新增 ${preview.records?.newCount || 0} 条，覆盖 ${preview.records?.overwriteCount || 0} 条\n`;
-        successMessage += `调整记录：新增 ${preview.adjRecords?.newCount || 0} 条，覆盖 ${preview.adjRecords?.overwriteCount || 0} 条\n`;
-        if (preview.trials) {
-          successMessage += `试验记录：新增 ${preview.trials.newCount || 0} 条，覆盖 ${preview.trials.overwriteCount || 0} 条\n`;
-        }
-        if (preview.observations) {
-          successMessage += `观察记录：新增 ${preview.observations.newCount || 0} 条，覆盖 ${preview.observations.overwriteCount || 0} 条`;
-        }
-      }
-    }
-
-    setImportModalOpen(false);
-    setImportPreview(null);
-    setImportFileInfo(null);
-    setImportMode(IMPORT_MODES.MERGE_CURRENT);
-    setImportTargetGhId('');
-    setImportSourceGhId('');
-    setImportNewGhName('');
-
-    alert(successMessage);
-  }
-
-  function handleImportCancel() {
-    setImportModalOpen(false);
-    setImportPreview(null);
-    setImportError(null);
-    setImportFileInfo(null);
-    setImportMode(IMPORT_MODES.MERGE_CURRENT);
-    setImportTargetGhId('');
-    setImportSourceGhId('');
-    setImportNewGhName('');
   }
 
   function applySelectedNpkToCalc() {
@@ -1573,11 +1318,11 @@ function App() {
           </div>
         </div>
         <div className="hero-actions">
-          <button type="button" className="hero-action-btn" onClick={handleExport}>
+          <button type="button" className="hero-action-btn" onClick={importExport.handleExport}>
             <HardDriveDownload size={16} />
             <span>导出数据</span>
           </button>
-          <button type="button" className="hero-action-btn hero-action-btn-primary" onClick={triggerImportFileSelect}>
+          <button type="button" className="hero-action-btn hero-action-btn-primary" onClick={importExport.triggerImportFileSelect}>
             <HardDriveUpload size={16} />
             <span>导入数据</span>
           </button>
@@ -1918,37 +1663,37 @@ function App() {
             </select>
             <button
               type="button"
-              className={'batch-toggle-btn ' + (batchMode ? 'batch-toggle-active' : '')}
+              className={'batch-toggle-btn ' + (batchOps.batchMode ? 'batch-toggle-active' : '')}
               onClick={toggleBatchMode}
             >
-              {batchMode ? <CheckSquare size={14} /> : <Square size={14} />}
-              <span>{batchMode ? '退出批量' : '批量操作'}</span>
+              {batchOps.batchMode ? <CheckSquare size={14} /> : <Square size={14} />}
+              <span>{batchOps.batchMode ? '退出批量' : '批量操作'}</span>
             </button>
           </div>
 
-          {batchMode && (
+          {batchOps.batchMode && (
             <div className="batch-toolbar">
               <button
                 type="button"
                 className="batch-select-all-btn"
-                onClick={() => toggleBatchSelectAll(
+                onClick={() => batchOps.toggleBatchSelectAll(
                   (boardFilter.crop || boardFilter.stage ? boardFilteredRecords : filteredRecords).map((r) => r.id)
                 )}
               >
-                {(boardFilter.crop || boardFilter.stage ? boardFilteredRecords : filteredRecords).every((r) => batchSelectedIds.has(r.id)) ? <CheckSquare size={14} /> : <Square size={14} />}
-                <span>{(boardFilter.crop || boardFilter.stage ? boardFilteredRecords : filteredRecords).every((r) => batchSelectedIds.has(r.id)) ? '取消全选' : '全选'}</span>
+                {(boardFilter.crop || boardFilter.stage ? boardFilteredRecords : filteredRecords).every((r) => batchOps.batchSelectedIds.has(r.id)) ? <CheckSquare size={14} /> : <Square size={14} />}
+                <span>{(boardFilter.crop || boardFilter.stage ? boardFilteredRecords : filteredRecords).every((r) => batchOps.batchSelectedIds.has(r.id)) ? '取消全选' : '全选'}</span>
               </button>
-              <span className="batch-count">已选 {batchSelectedIds.size} 项</span>
+              <span className="batch-count">已选 {batchOps.batchSelectedIds.size} 项</span>
               <div className="batch-actions">
-                <button type="button" className="batch-action-btn batch-action-archive" disabled={batchSelectedIds.size === 0} onClick={() => openBatchModal('archive')}>
+                <button type="button" className="batch-action-btn batch-action-archive" disabled={batchOps.batchSelectedIds.size === 0} onClick={() => batchOps.openBatchModal('archive')}>
                   <Archive size={14} />
                   <span>批量归档</span>
                 </button>
-                <button type="button" className="batch-action-btn batch-action-clear" disabled={batchSelectedIds.size === 0} onClick={() => openBatchModal('clearSchedule')}>
+                <button type="button" className="batch-action-btn batch-action-clear" disabled={batchOps.batchSelectedIds.size === 0} onClick={() => batchOps.openBatchModal('clearSchedule')}>
                   <Clock size={14} />
                   <span>清除排期</span>
                 </button>
-                <button type="button" className="batch-action-btn batch-action-schedule" disabled={batchSelectedIds.size === 0} onClick={() => openBatchModal('setSchedule')}>
+                <button type="button" className="batch-action-btn batch-action-schedule" disabled={batchOps.batchSelectedIds.size === 0} onClick={() => batchOps.openBatchModal('setSchedule')}>
                   <Calendar size={14} />
                   <span>设置周期</span>
                 </button>
@@ -1962,22 +1707,22 @@ function App() {
                 className={
                   'record ' +
                   (item.conflict || hasOverlap(item, records) ? 'conflict ' : '') +
-                  (batchMode && batchSelectedIds.has(item.id) ? 'record-batch-selected ' : '')
+                  (batchOps.batchMode && batchOps.batchSelectedIds.has(item.id) ? 'record-batch-selected ' : '')
                 }
                 key={item.id}
                 onClick={() => {
-                  if (batchMode) {
-                    toggleBatchSelect(item.id);
+                  if (batchOps.batchMode) {
+                    batchOps.toggleBatchSelect(item.id);
                   } else {
                     setSelected(item);
                   }
                 }}
               >
-                {batchMode && (
+                {batchOps.batchMode && (
                   <div className="record-batch-check" onClick={(e) => e.stopPropagation()}>
-                    {batchSelectedIds.has(item.id)
-                      ? <CheckSquare size={18} className="batch-check-icon batch-check-active" onClick={() => toggleBatchSelect(item.id)} />
-                      : <Square size={18} className="batch-check-icon" onClick={() => toggleBatchSelect(item.id)} />
+                    {batchOps.batchSelectedIds.has(item.id)
+                      ? <CheckSquare size={18} className="batch-check-icon batch-check-active" onClick={() => batchOps.toggleBatchSelect(item.id)} />
+                      : <Square size={18} className="batch-check-icon" onClick={() => batchOps.toggleBatchSelect(item.id)} />
                     }
                   </div>
                 )}
@@ -1991,7 +1736,7 @@ function App() {
                   </div>
                   <p className="record-detail">{`${item.npk}｜${item.memo}`}</p>
                   {(item.conflict || hasOverlap(item, records)) && <div className="warning"><AlertTriangle size={15} />发现冲突</div>}
-                  {!batchMode && (
+                  {!batchOps.batchMode && (
                     <div className="actions" onClick={(event) => event.stopPropagation()}>
                       {appConfig.statuses.map((status) => (
                         <button key={status} type="button" onClick={() => updateStatus(item.id, status)}>{status}</button>
@@ -2225,30 +1970,30 @@ function App() {
         </div>
       )}
 
-      {batchModalOpen && batchAction && (
-        <div className="modal-overlay" onClick={() => { setBatchModalOpen(false); setBatchAction(null); }}>
+      {batchOps.batchModalOpen && batchOps.batchAction && (
+        <div className="modal-overlay" onClick={batchOps.closeBatchModal}>
           <div className="modal batch-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <div className="modal-title">
-                {batchAction === 'archive' && <Archive size={18} />}
-                {batchAction === 'clearSchedule' && <Clock size={18} />}
-                {batchAction === 'setSchedule' && <Calendar size={18} />}
+                {batchOps.batchAction === 'archive' && <Archive size={18} />}
+                {batchOps.batchAction === 'clearSchedule' && <Clock size={18} />}
+                {batchOps.batchAction === 'setSchedule' && <Calendar size={18} />}
                 <h3>
-                  {batchAction === 'archive' && '批量归档确认'}
-                  {batchAction === 'clearSchedule' && '批量清除排期确认'}
-                  {batchAction === 'setSchedule' && '批量设置使用周期'}
+                  {batchOps.batchAction === 'archive' && '批量归档确认'}
+                  {batchOps.batchAction === 'clearSchedule' && '批量清除排期确认'}
+                  {batchOps.batchAction === 'setSchedule' && '批量设置使用周期'}
                 </h3>
               </div>
-              <button type="button" className="modal-close" onClick={() => { setBatchModalOpen(false); setBatchAction(null); }}>
+              <button type="button" className="modal-close" onClick={batchOps.closeBatchModal}>
                 <X size={18} />
               </button>
             </div>
             <div className="modal-body">
               <div className="batch-modal-summary">
-                <span className="batch-modal-count">已选择 <strong>{batchSelectedIds.size}</strong> 条配方</span>
+                <span className="batch-modal-count">已选择 <strong>{batchOps.batchSelectedIds.size}</strong> 条配方</span>
               </div>
               <div className="batch-modal-records">
-                {records.filter((r) => batchSelectedIds.has(r.id)).map((r) => (
+                {records.filter((r) => batchOps.batchSelectedIds.has(r.id)).map((r) => (
                   <div key={r.id} className="batch-modal-record">
                     <strong>{r.crop}</strong>
                     <span className="version-tag">v{r.version || '?'}</span>
@@ -2259,54 +2004,54 @@ function App() {
                 ))}
               </div>
 
-              {batchAction === 'archive' && (
+              {batchOps.batchAction === 'archive' && (
                 <div className="batch-modal-hint">
                   <AlertTriangle size={16} />
-                  <p>将选中的 {batchSelectedIds.size} 条配方状态更改为「已归档」，每条配方的时间线将记录此操作。</p>
+                  <p>将选中的 {batchOps.batchSelectedIds.size} 条配方状态更改为「已归档」，每条配方的时间线将记录此操作。</p>
                 </div>
               )}
-              {batchAction === 'clearSchedule' && (
+              {batchOps.batchAction === 'clearSchedule' && (
                 <div className="batch-modal-hint">
                   <Info size={16} />
                   <p>将清除选中配方的使用排期（开始/结束日期），每条配方的时间线将记录此操作。</p>
                 </div>
               )}
-              {batchAction === 'setSchedule' && (
+              {batchOps.batchAction === 'setSchedule' && (
                 <div className="batch-schedule-form">
                   <div className="schedule-form-grid">
                     <label>
                       <span>开始日期</span>
                       <input
                         type="date"
-                        value={batchScheduleForm.startDate}
-                        onChange={(e) => setBatchScheduleForm({ ...batchScheduleForm, startDate: e.target.value })}
+                        value={batchOps.batchScheduleForm.startDate}
+                        onChange={(e) => batchOps.setBatchScheduleForm({ ...batchOps.batchScheduleForm, startDate: e.target.value })}
                       />
                     </label>
                     <label>
                       <span>结束日期（可选）</span>
                       <input
                         type="date"
-                        value={batchScheduleForm.endDate}
-                        onChange={(e) => setBatchScheduleForm({ ...batchScheduleForm, endDate: e.target.value })}
+                        value={batchOps.batchScheduleForm.endDate}
+                        onChange={(e) => batchOps.setBatchScheduleForm({ ...batchOps.batchScheduleForm, endDate: e.target.value })}
                       />
                     </label>
                   </div>
                   <p className="schedule-hint">
                     <Layers size={12} />
-                    为选中的 {batchSelectedIds.size} 条配方统一设置使用周期，每条配方的时间线将记录此操作。
+                    为选中的 {batchOps.batchSelectedIds.size} 条配方统一设置使用周期，每条配方的时间线将记录此操作。
                   </p>
                 </div>
               )}
             </div>
             <div className="modal-footer">
-              <button type="button" className="ghost" onClick={() => { setBatchModalOpen(false); setBatchAction(null); }}>
+              <button type="button" className="ghost" onClick={batchOps.closeBatchModal}>
                 取消
               </button>
               <button
                 type="button"
                 className="primary"
-                onClick={executeBatchAction}
-                disabled={batchAction === 'setSchedule' && !batchScheduleForm.startDate}
+                onClick={batchOps.executeBatchAction}
+                disabled={batchOps.batchAction === 'setSchedule' && !batchOps.batchScheduleForm.startDate}
               >
                 确认执行
               </button>
@@ -3616,7 +3361,7 @@ function App() {
         </div>
       )}
 
-      {importModalOpen && (
+      {importExport.importModalOpen && (
         <div className="import-modal-overlay" onClick={handleImportCancel}>
           <div className="import-modal" onClick={(e) => e.stopPropagation()}>
             <div className="import-modal-header">
@@ -3631,15 +3376,15 @@ function App() {
 
             <div className="import-modal-body">
               <input
-                ref={importFileInputRef}
+                ref={importExport.importFileInputRef}
                 type="file"
                 accept=".json,application/json"
-                onChange={handleImportFileSelect}
+                onChange={importExport.handleImportFileSelect}
                 className="import-file-input"
               />
 
-              {!importFileInfo && !importProcessing && !importError && (
-                <div className="import-drop-zone" onClick={() => importFileInputRef.current?.click()}>
+              {!importFileInfo && !importExport.importProcessing && !importExport.importError && (
+                <div className="import-drop-zone" onClick={() => importExport.importFileInputRef.current?.click()}>
                   <Upload size={48} />
                   <h3>点击选择 JSON 文件</h3>
                   <p>或拖拽文件到此处</p>
@@ -3647,25 +3392,25 @@ function App() {
                 </div>
               )}
 
-              {importProcessing && (
+              {importExport.importProcessing && (
                 <div className="import-processing">
                   <RefreshCw size={32} className="spin" />
                   <p>正在解析文件...</p>
                 </div>
               )}
 
-              {importError && (
+              {importExport.importError && (
                 <div className="import-error">
                   <AlertTriangle size={24} />
                   <h3>导入失败</h3>
-                  <p>{importError}</p>
-                  <button type="button" className="primary" onClick={triggerImportFileSelect}>
+                  <p>{importExport.importError}</p>
+                  <button type="button" className="primary" onClick={importExport.triggerImportFileSelect}>
                     重新选择文件
                   </button>
                 </div>
               )}
 
-              {importFileInfo && !importProcessing && (
+              {importFileInfo && !importExport.importProcessing && (
                 <div className="import-file-info">
                   <div className="import-file-meta">
                     <FileText size={18} />
@@ -3674,30 +3419,30 @@ function App() {
                       <span>{(importFileInfo.size / 1024).toFixed(2)} KB</span>
                     </div>
                   </div>
-                  <button type="button" className="ghost" onClick={triggerImportFileSelect}>
+                  <button type="button" className="ghost" onClick={importExport.triggerImportFileSelect}>
                     重新选择
                   </button>
                 </div>
               )}
 
-              {importPreview && importPreview.importType && (
+              {importExport.importPreview && importExport.importPreview.importType && (
                 <div className="import-type-indicator">
-                  {importPreview.importType === EXPORT_TYPES.FULL_BACKUP ? (
+                  {importExport.importPreview.importType === EXPORT_TYPES.FULL_BACKUP ? (
                     <>
                       <Database size={16} />
                       <span className="import-type-label">完整备份文件</span>
                       <span className="import-type-desc">
-                        包含 {importPreview.preview.sourceGreenhouses.length} 个温室
-                        {importPreview.preview.customTemplateCount > 0 && `，${importPreview.preview.customTemplateCount} 个自定义模板`}
+                        包含 {importExport.importPreview.preview.sourceGreenhouses.length} 个温室
+                        {importExport.importPreview.preview.customTemplateCount > 0 && `，${importExport.importPreview.preview.customTemplateCount} 个自定义模板`}
                       </span>
                     </>
                   ) : (
                     <>
                       <Building2 size={16} />
                       <span className="import-type-label">单温室数据</span>
-                      {importPreview.preview.sourceGreenhouse?.name && (
+                      {importExport.importPreview.preview.sourceGreenhouse?.name && (
                         <span className="import-type-desc">
-                          来自「{importPreview.preview.sourceGreenhouse.name}」
+                          来自「{importExport.importPreview.preview.sourceGreenhouse.name}」
                         </span>
                       )}
                     </>
@@ -3705,21 +3450,21 @@ function App() {
                 </div>
               )}
 
-              {importPreview && importPreview.availableModes && (
+              {importExport.importPreview && importExport.importPreview.availableModes && (
                 <div className="import-mode-selector">
                   <div className="import-mode-selector-title">
                     <Settings size={16} />
                     <strong>导入模式</strong>
                   </div>
                   <div className="import-mode-options">
-                    {importPreview.availableModes.includes(IMPORT_MODES.OVERWRITE) && (
+                    {importExport.importPreview.availableModes.includes(IMPORT_MODES.OVERWRITE) && (
                       <label className="import-mode-option">
                         <input
                           type="radio"
                           name="importMode"
                           value={IMPORT_MODES.OVERWRITE}
-                          checked={importMode === IMPORT_MODES.OVERWRITE}
-                          onChange={(e) => setImportMode(e.target.value)}
+                          checked={importExport.importMode === IMPORT_MODES.OVERWRITE}
+                          onChange={(e) => importExport.setImportMode(e.target.value)}
                         />
                         <div className="import-mode-content">
                           <div className="import-mode-title">
@@ -3737,14 +3482,14 @@ function App() {
                       </label>
                     )}
 
-                    {importPreview.availableModes.includes(IMPORT_MODES.MERGE_CURRENT) && (
+                    {importExport.importPreview.availableModes.includes(IMPORT_MODES.MERGE_CURRENT) && (
                       <label className="import-mode-option">
                         <input
                           type="radio"
                           name="importMode"
                           value={IMPORT_MODES.MERGE_CURRENT}
-                          checked={importMode === IMPORT_MODES.MERGE_CURRENT}
-                          onChange={(e) => setImportMode(e.target.value)}
+                          checked={importExport.importMode === IMPORT_MODES.MERGE_CURRENT}
+                          onChange={(e) => importExport.setImportMode(e.target.value)}
                         />
                         <div className="import-mode-content">
                           <div className="import-mode-title">
@@ -3758,14 +3503,14 @@ function App() {
                       </label>
                     )}
 
-                    {importPreview.availableModes.includes(IMPORT_MODES.SPECIFIC_GREENHOUSE) && (
+                    {importExport.importPreview.availableModes.includes(IMPORT_MODES.SPECIFIC_GREENHOUSE) && (
                       <label className="import-mode-option">
                         <input
                           type="radio"
                           name="importMode"
                           value={IMPORT_MODES.SPECIFIC_GREENHOUSE}
-                          checked={importMode === IMPORT_MODES.SPECIFIC_GREENHOUSE}
-                          onChange={(e) => setImportMode(e.target.value)}
+                          checked={importExport.importMode === IMPORT_MODES.SPECIFIC_GREENHOUSE}
+                          onChange={(e) => importExport.setImportMode(e.target.value)}
                         />
                         <div className="import-mode-content">
                           <div className="import-mode-title">
@@ -3775,13 +3520,13 @@ function App() {
                           <p className="import-mode-desc">
                             选择一个现有的温室，将数据合并到该温室中。
                           </p>
-                          {importMode === IMPORT_MODES.SPECIFIC_GREENHOUSE && (
+                          {importExport.importMode === IMPORT_MODES.SPECIFIC_GREENHOUSE && (
                             <div className="import-target-selector">
                               <label>
                                 <span>目标温室</span>
                                 <select
-                                  value={importTargetGhId || activeGhId}
-                                  onChange={(e) => setImportTargetGhId(e.target.value)}
+                                  value={importExport.importTargetGhId || activeGhId}
+                                  onChange={(e) => importExport.setImportTargetGhId(e.target.value)}
                                 >
                                   {greenhouses.map((gh) => (
                                     <option key={gh.id} value={gh.id}>
@@ -3796,14 +3541,14 @@ function App() {
                       </label>
                     )}
 
-                    {importPreview.availableModes.includes(IMPORT_MODES.NEW_GREENHOUSE) && (
+                    {importExport.importPreview.availableModes.includes(IMPORT_MODES.NEW_GREENHOUSE) && (
                       <label className="import-mode-option">
                         <input
                           type="radio"
                           name="importMode"
                           value={IMPORT_MODES.NEW_GREENHOUSE}
-                          checked={importMode === IMPORT_MODES.NEW_GREENHOUSE}
-                          onChange={(e) => setImportMode(e.target.value)}
+                          checked={importExport.importMode === IMPORT_MODES.NEW_GREENHOUSE}
+                          onChange={(e) => importExport.setImportMode(e.target.value)}
                         />
                         <div className="import-mode-content">
                           <div className="import-mode-title">
@@ -3813,13 +3558,13 @@ function App() {
                           <p className="import-mode-desc">
                             创建一个新的温室，所有导入的数据将自动重新生成 ID 以避免冲突。
                           </p>
-                          {importMode === IMPORT_MODES.NEW_GREENHOUSE && (
+                          {importExport.importMode === IMPORT_MODES.NEW_GREENHOUSE && (
                             <div className="import-target-selector">
                               <label>
                                 <span>新温室名称</span>
                                 <input
                                   type="text"
-                                  value={importNewGhName}
+                                  value={importExport.importNewGhName}
                                   onChange={(e) => setImportNewGhName(e.target.value)}
                                   placeholder={`导入温室 ${greenhouses.length + 1} 号`}
                                 />
@@ -3833,30 +3578,30 @@ function App() {
                 </div>
               )}
 
-              {importPreview && importPreview.importType === EXPORT_TYPES.FULL_BACKUP && importMode !== IMPORT_MODES.OVERWRITE && (
+              {importExport.importPreview && importExport.importPreview.importType === EXPORT_TYPES.FULL_BACKUP && importExport.importMode !== IMPORT_MODES.OVERWRITE && (
                 <div className="import-source-selector">
                   <div className="import-source-selector-title">
                     <Building2 size={16} />
                     <strong>选择源温室</strong>
                   </div>
                   <div className="import-source-options">
-                    {importPreview.preview.sourceGreenhouses.map((gh) => (
+                    {importExport.importPreview.preview.sourceGreenhouses.map((gh) => (
                       <label key={gh.id} className="import-source-option">
                         <input
                           type="radio"
                           name="importSourceGh"
                           value={gh.id}
                           checked={importSourceGhId === gh.id}
-                          onChange={(e) => setImportSourceGhId(e.target.value)}
+                          onChange={(e) => importExport.setImportSourceGhId(e.target.value)}
                         />
                         <div className="import-source-content">
                           <strong>{gh.name}</strong>
-                          {gh.id === importPreview.preview.sourceActiveGhId && (
+                          {gh.id === importExport.importPreview.preview.sourceActiveGhId && (
                             <span className="import-source-active">原激活温室</span>
                           )}
                           <span className="import-source-stats">
-                            {importPreview.preview.impactByGh?.[gh.id]?.preview?.records?.newCount || 0} 条配方，
-                            {importPreview.preview.impactByGh?.[gh.id]?.preview?.adjRecords?.newCount || 0} 条调整
+                            {importExport.importPreview.preview.impactByGh?.[gh.id]?.preview?.records?.newCount || 0} 条配方，
+                            {importExport.importPreview.preview.impactByGh?.[gh.id]?.preview?.adjRecords?.newCount || 0} 条调整
                           </span>
                         </div>
                       </label>
@@ -3865,20 +3610,20 @@ function App() {
                 </div>
               )}
 
-              {importPreview && (
+              {importExport.importPreview && (
                 <div className="import-preview">
-                  {importPreview.warnings.length > 0 && (
+                  {importExport.importPreview.warnings.length > 0 && (
                     <div className="import-warnings">
                       <AlertTriangle size={16} />
                       <div>
-                        {importPreview.warnings.map((w, i) => (
+                        {importExport.importPreview.warnings.map((w, i) => (
                           <p key={i}>{w}</p>
                         ))}
                       </div>
                     </div>
                   )}
 
-                  {importPreview.importType === EXPORT_TYPES.FULL_BACKUP && importMode === IMPORT_MODES.OVERWRITE ? (
+                  {importExport.importPreview.importType === EXPORT_TYPES.FULL_BACKUP && importExport.importMode === IMPORT_MODES.OVERWRITE ? (
                     <div className="import-full-backup-preview">
                       <div className="import-preview-section-title">
                         <Database size={16} />
@@ -3891,21 +3636,21 @@ function App() {
                         </div>
                         <div className="import-backup-summary-item">
                           <span>将导入温室数</span>
-                          <strong>{importPreview.preview.sourceGreenhouses.length} 个</strong>
+                          <strong>{importExport.importPreview.preview.sourceGreenhouses.length} 个</strong>
                         </div>
-                        {importPreview.preview.customTemplateCount > 0 && (
+                        {importExport.importPreview.preview.customTemplateCount > 0 && (
                           <div className="import-backup-summary-item">
                             <span>将导入自定义模板</span>
-                            <strong>{importPreview.preview.customTemplateCount} 个</strong>
+                            <strong>{importExport.importPreview.preview.customTemplateCount} 个</strong>
                           </div>
                         )}
                       </div>
 
                       <div className="import-backup-greenhouses">
-                        {importPreview.preview.sourceGreenhouses.map((gh) => {
-                          const impact = importPreview.preview.impactByGh?.[gh.id];
-                          const data = importPreview.cleanData.data?.[gh.id];
-                          const isActive = gh.id === importPreview.preview.sourceActiveGhId;
+                        {importExport.importPreview.preview.sourceGreenhouses.map((gh) => {
+                          const impact = importExport.importPreview.preview.impactByGh?.[gh.id];
+                          const data = importExport.importPreview.cleanData.data?.[gh.id];
+                          const isActive = gh.id === importExport.importPreview.preview.sourceActiveGhId;
                           return (
                             <div key={gh.id} className="import-backup-gh-card">
                               <div className="import-backup-gh-head">
@@ -3932,16 +3677,16 @@ function App() {
                     </div>
                   ) : (
                     (() => {
-                      const isFullBackup = importPreview.importType === EXPORT_TYPES.FULL_BACKUP;
+                      const isFullBackup = importExport.importPreview.importType === EXPORT_TYPES.FULL_BACKUP;
                       const impact = isFullBackup && importSourceGhId
-                        ? importPreview.preview.impactByGh?.[importSourceGhId]?.preview
-                        : importPreview.preview;
+                        ? importExport.importPreview.preview.impactByGh?.[importSourceGhId]?.preview
+                        : importExport.importPreview.preview;
                       const sourceGhName = isFullBackup && importSourceGhId
-                        ? importPreview.preview.sourceGreenhouses.find(g => g.id === importSourceGhId)?.name
-                        : importPreview.preview.sourceGreenhouse?.name;
+                        ? importExport.importPreview.preview.sourceGreenhouses.find(g => g.id === importSourceGhId)?.name
+                        : importExport.importPreview.preview.sourceGreenhouse?.name;
 
-                      const targetGhName = importMode === IMPORT_MODES.SPECIFIC_GREENHOUSE
-                        ? ghState.greenhouses?.[importTargetGhId]?.name
+                      const targetGhName = importExport.importMode === IMPORT_MODES.SPECIFIC_GREENHOUSE
+                        ? ghState.greenhouses?.[importExport.importTargetGhId]?.name
                         : activeGreenhouse?.name;
 
                       return impact ? (
@@ -3951,8 +3696,8 @@ function App() {
                             <strong>
                               导入影响范围
                               {sourceGhName && <> · 源：{sourceGhName}</>}
-                              {importMode === IMPORT_MODES.NEW_GREENHOUSE && <> · 目标：新建温室</>}
-                              {importMode !== IMPORT_MODES.NEW_GREENHOUSE && targetGhName && <> · 目标：{targetGhName}</>}
+                              {importExport.importMode === IMPORT_MODES.NEW_GREENHOUSE && <> · 目标：新建温室</>}
+                              {importExport.importMode !== IMPORT_MODES.NEW_GREENHOUSE && targetGhName && <> · 目标：{targetGhName}</>}
                             </strong>
                           </div>
 
@@ -3964,9 +3709,9 @@ function App() {
                               <div className="import-preview-stat-numbers">
                                 <span className="import-preview-number import-preview-new">
                                   <Plus size={14} />
-                                  新增 {importMode === IMPORT_MODES.NEW_GREENHOUSE ? impact.records.newCount + impact.records.overwriteCount : impact.records.newCount}
+                                  新增 {importExport.importMode === IMPORT_MODES.NEW_GREENHOUSE ? impact.records.newCount + impact.records.overwriteCount : impact.records.newCount}
                                 </span>
-                                {importMode !== IMPORT_MODES.NEW_GREENHOUSE && (
+                                {importExport.importMode !== IMPORT_MODES.NEW_GREENHOUSE && (
                                   <span className="import-preview-number import-preview-overwrite">
                                     <RefreshCw size={14} />
                                     覆盖 {impact.records.overwriteCount}
@@ -3982,9 +3727,9 @@ function App() {
                               <div className="import-preview-stat-numbers">
                                 <span className="import-preview-number import-preview-new">
                                   <Plus size={14} />
-                                  新增 {importMode === IMPORT_MODES.NEW_GREENHOUSE ? impact.adjRecords.newCount + impact.adjRecords.overwriteCount : impact.adjRecords.newCount}
+                                  新增 {importExport.importMode === IMPORT_MODES.NEW_GREENHOUSE ? impact.adjRecords.newCount + impact.adjRecords.overwriteCount : impact.adjRecords.newCount}
                                 </span>
-                                {importMode !== IMPORT_MODES.NEW_GREENHOUSE && (
+                                {importExport.importMode !== IMPORT_MODES.NEW_GREENHOUSE && (
                                   <span className="import-preview-number import-preview-overwrite">
                                     <RefreshCw size={14} />
                                     覆盖 {impact.adjRecords.overwriteCount}
@@ -4001,9 +3746,9 @@ function App() {
                                 <div className="import-preview-stat-numbers">
                                   <span className="import-preview-number import-preview-new">
                                     <Plus size={14} />
-                                    新增 {importMode === IMPORT_MODES.NEW_GREENHOUSE ? impact.trials.newCount + impact.trials.overwriteCount : impact.trials.newCount}
+                                    新增 {importExport.importMode === IMPORT_MODES.NEW_GREENHOUSE ? impact.trials.newCount + impact.trials.overwriteCount : impact.trials.newCount}
                                   </span>
-                                  {importMode !== IMPORT_MODES.NEW_GREENHOUSE && (
+                                  {importExport.importMode !== IMPORT_MODES.NEW_GREENHOUSE && (
                                     <span className="import-preview-number import-preview-overwrite">
                                       <RefreshCw size={14} />
                                       覆盖 {impact.trials.overwriteCount}
@@ -4021,9 +3766,9 @@ function App() {
                                 <div className="import-preview-stat-numbers">
                                   <span className="import-preview-number import-preview-new">
                                     <Plus size={14} />
-                                    新增 {importMode === IMPORT_MODES.NEW_GREENHOUSE ? impact.observations.newCount + impact.observations.overwriteCount : impact.observations.newCount}
+                                    新增 {importExport.importMode === IMPORT_MODES.NEW_GREENHOUSE ? impact.observations.newCount + impact.observations.overwriteCount : impact.observations.newCount}
                                   </span>
-                                  {importMode !== IMPORT_MODES.NEW_GREENHOUSE && (
+                                  {importExport.importMode !== IMPORT_MODES.NEW_GREENHOUSE && (
                                     <span className="import-preview-number import-preview-overwrite">
                                       <RefreshCw size={14} />
                                       覆盖 {impact.observations.overwriteCount}
@@ -4034,7 +3779,7 @@ function App() {
                             )}
                           </div>
 
-                          {importMode !== IMPORT_MODES.NEW_GREENHOUSE && impact.records.overwriteItems.length > 0 && (
+                          {importExport.importMode !== IMPORT_MODES.NEW_GREENHOUSE && impact.records.overwriteItems.length > 0 && (
                             <div className="import-overwrite-preview">
                               <div className="import-overwrite-preview-header">
                                 <AlertTriangle size={16} />
@@ -4062,7 +3807,7 @@ function App() {
                             <div className="import-preview-total">
                               <Database size={16} />
                               <span>
-                                {importMode === IMPORT_MODES.NEW_GREENHOUSE ? '将创建' : '共导入'} {impact.records.newCount + impact.records.overwriteCount} 条配方，
+                                {importExport.importMode === IMPORT_MODES.NEW_GREENHOUSE ? '将创建' : '共导入'} {impact.records.newCount + impact.records.overwriteCount} 条配方，
                                 {impact.adjRecords.newCount + impact.adjRecords.overwriteCount} 条调整记录
                                 {impact.trials && `，${impact.trials.newCount + impact.trials.overwriteCount} 条试验`}
                                 {impact.observations && `，${impact.observations.newCount + impact.observations.overwriteCount} 条观察记录`}
@@ -4074,19 +3819,19 @@ function App() {
                     })()
                   )}
 
-                  {importPreview.preview.formatErrors.length > 0 && (
+                  {importExport.importPreview.preview.formatErrors.length > 0 && (
                     <div className="import-format-errors">
                       <div className="import-format-errors-header">
                         <AlertTriangle size={16} />
-                        <strong>格式错误（{importPreview.preview.formatErrors.length} 项，将被跳过）</strong>
+                        <strong>格式错误（{importExport.importPreview.preview.formatErrors.length} 项，将被跳过）</strong>
                       </div>
                       <div className="import-format-errors-list">
-                        {importPreview.preview.formatErrors.slice(0, 10).map((err, i) => (
+                        {importExport.importPreview.preview.formatErrors.slice(0, 10).map((err, i) => (
                           <p key={i}>{err}</p>
                         ))}
-                        {importPreview.preview.formatErrors.length > 10 && (
+                        {importExport.importPreview.preview.formatErrors.length > 10 && (
                           <p className="import-more-errors">
-                            ...还有 {importPreview.preview.formatErrors.length - 10} 项错误
+                            ...还有 {importExport.importPreview.preview.formatErrors.length - 10} 项错误
                           </p>
                         )}
                       </div>
@@ -4096,7 +3841,7 @@ function App() {
               )}
             </div>
 
-            {importPreview && importPreview.valid && (
+            {importExport.importPreview && importExport.importPreview.valid && (
               <div className="import-modal-footer">
                 <button type="button" className="ghost" onClick={handleImportCancel}>
                   取消
@@ -4104,8 +3849,8 @@ function App() {
                 <button
                   type="button"
                   className="primary"
-                  onClick={handleImportConfirm}
-                  disabled={!importPreview.valid}
+                  onClick={importExport.handleImportConfirm}
+                  disabled={!importExport.importPreview.valid}
                 >
                   <CheckCircle2 size={16} />
                   确认导入
@@ -4116,15 +3861,15 @@ function App() {
         </div>
       )}
 
-      {exportModalOpen && (
-        <div className="modal-overlay" onClick={() => setExportModalOpen(false)}>
+      {importExport.exportModalOpen && (
+        <div className="modal-overlay" onClick={() => importExport.setExportModalOpen(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <div className="modal-title">
                 <HardDriveDownload size={20} />
                 <h3>导出数据</h3>
               </div>
-              <button type="button" className="modal-close" onClick={() => setExportModalOpen(false)}>
+              <button type="button" className="modal-close" onClick={() => importExport.setExportModalOpen(false)}>
                 <X size={20} />
               </button>
             </div>
@@ -4135,8 +3880,8 @@ function App() {
                     type="radio"
                     name="exportMode"
                     value={EXPORT_TYPES.GREENHOUSE_DATA}
-                    checked={exportMode === EXPORT_TYPES.GREENHOUSE_DATA}
-                    onChange={(e) => setExportMode(e.target.value)}
+                    checked={importExport.exportMode === EXPORT_TYPES.GREENHOUSE_DATA}
+                    onChange={(e) => importExport.setExportMode(e.target.value)}
                   />
                   <div className="export-mode-content">
                     <div className="export-mode-title">
@@ -4160,8 +3905,8 @@ function App() {
                     type="radio"
                     name="exportMode"
                     value={EXPORT_TYPES.FULL_BACKUP}
-                    checked={exportMode === EXPORT_TYPES.FULL_BACKUP}
-                    onChange={(e) => setExportMode(e.target.value)}
+                    checked={importExport.exportMode === EXPORT_TYPES.FULL_BACKUP}
+                    onChange={(e) => importExport.setExportMode(e.target.value)}
                   />
                   <div className="export-mode-content">
                     <div className="export-mode-title">
@@ -4184,10 +3929,10 @@ function App() {
               </div>
             </div>
             <div className="modal-footer">
-              <button type="button" className="ghost" onClick={() => setExportModalOpen(false)}>
+              <button type="button" className="ghost" onClick={() => importExport.setExportModalOpen(false)}>
                 取消
               </button>
-              <button type="button" className="primary" onClick={handleExportConfirm}>
+              <button type="button" className="primary" onClick={importExport.handleExportConfirm}>
                 <Download size={16} />
                 开始导出
               </button>

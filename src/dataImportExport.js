@@ -418,8 +418,8 @@ function validateGreenhouseDataImport(data, currentMultiGhState, appConfig, targ
     availableModes: [IMPORT_MODES.MERGE_CURRENT, IMPORT_MODES.NEW_GREENHOUSE, IMPORT_MODES.SPECIFIC_GREENHOUSE],
     preview: {
       sourceGreenhouse: {
-        id: data.greenhouseId,
-        name: data.greenhouseName,
+        id: null,
+        name: null,
       },
       impact: null,
       formatErrors: [],
@@ -436,6 +436,9 @@ function validateGreenhouseDataImport(data, currentMultiGhState, appConfig, targ
     result.errors.push('导入数据格式无效，应为 JSON 对象');
     return result;
   }
+
+  result.preview.sourceGreenhouse.id = data.greenhouseId;
+  result.preview.sourceGreenhouse.name = data.greenhouseName;
 
   if (data.formatVersion && !BACKWARD_COMPATIBLE_VERSIONS.includes(data.formatVersion)) {
     result.warnings.push(`导入文件格式版本为 ${data.formatVersion}，当前版本为 ${EXPORT_FORMAT_VERSION}，可能存在不兼容`);

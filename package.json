@@ -2,7 +2,9 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 61302",
     "build": "tsc -b && vite build",
-    "preview": "vite preview --host 0.0.0.0 --port 61302"
+    "preview": "vite preview --host 0.0.0.0 --port 61302",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",
@@ -12,5 +14,8 @@
     "react-dom": "latest",
     "lucide-react": "latest"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "vitest": "latest",
+    "jsdom": "latest"
+  }
 }
